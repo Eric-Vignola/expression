@@ -1,10 +1,18 @@
 # Expression
 Expression to math network parser for Autodesk Maya
 
+## About
+This port of a MEL library I wrote decades ago to convert a string expression into a math node networks.
+Parsing the expression is now handled by pyparsing, but the math tree logic remains and is 100% native
+Maya math nodes, no plugins required.
+
+The main aim of this module is to solve the problem scripted rig pipelines have where several paragraphs of
+`createNode` and `connectAttr` commands can now be replaced by something human readable, like `pCube2.t = pCube1.t * floor(pCube3.ty)`.
+
 ## Requirements
 Autodesk Maya, pyparsing
 
-## Authors
+## Author
 * **Eric Vignola** (eric.vignola@gmail.com)
 
 ## Example
