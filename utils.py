@@ -443,7 +443,6 @@ def _cosd(items):
     return _cos(items, pi=180.)
 
 
-# TODO
 def _acos(items):
 
     '''
@@ -462,7 +461,7 @@ def _acos(items):
     return negate * 3.14159265358979 + ret;  
     '''
 
-# TODO
+
 def _asin(items):
     
     '''
@@ -481,7 +480,7 @@ def _asin(items):
     '''
     
     
-# TODO
+    
 def _tan(items):
     
     '''
@@ -490,6 +489,8 @@ def _tan(items):
     return s / c;
 
     '''
+
+
 
 
 
@@ -1040,7 +1041,7 @@ FUNCTIONS = {'abs':                  _abs,
 
 
 
-def eval(exp):
+def evaluate_line(exp):
     
     # define the parser
     expression = Forward()
@@ -1088,7 +1089,7 @@ def eval(exp):
     regex = r"([^,])(>=|<=|!=|==|>|<)([^,])"
     replace = r"\1,\2,\3"
     exp = re.sub(regex, replace, exp)
-    
+        
     ret = comp_expr.parseString(exp)[0]
     
     
@@ -1097,8 +1098,57 @@ def eval(exp):
 
 
 
+def eval(expression, variables=None):
+    
+    if isinstance(expression, (str, unicode)):
+        expression = expression.splitlines()
+        
+    # init known variables    
+    known_variables = {}
+    if variables:
+        known_variables.update(variables)
+    
+    
+    result = None
+    for line in expression:
 
-#print eval('pCube2.t = unit(pCube1.t)')
-
+        # ignore lines that are commented out, or trailing comments
+        if not line.strip().startswith('#'):
+            
+            if '#' in line:
+                line = line.split('#')[0]
+    
+            
+            # --- Process variables --- #
+            # Are we piping a result into a variables (line will begin with $... =)
+            stored = re.findall(r'\$.+?=', line)
+            if stored:
+                stored = stored[0]
+                if '.' in stored:
+                    stored=None # this is a normal variable bubstitution
+                else:
+                    line = line.replace(stored, '') # stored var will be set at the end
+                    stored = stored[1:-1].strip()
+                
+                
+            # process known variables
+            if known_variables:
+                v = sorted([x for x in re.findall("[\d$A-Za-z]*", line) if x.startswith('$')])[::-1]
+                for var in v:
+                    if var[1:] in known_variables:
+                        line = line.replace(var, known_variables[var[1:]])
+    
+    
+            # --- evaluate the line --- # 
+            line = line.strip()
+            if line:
+                result = evaluate_line(line)
+                
+            # store the result
+            if stored:
+                known_variables[stored] = result
+            
+            
+    return result
 
 
