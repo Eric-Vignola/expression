@@ -10,6 +10,7 @@ from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, de
 CONSTANTS = {'e':math.e,
              'pi':math.pi,
              'twopi':(math.pi*2),
+             'halfpi':(math.pi/2),
              'phi':((1 + 5 ** 0.5) / 2)}
 
 CONDITIONS = {'==':0,'!=':1,'>':2,'>=':3,'<':4,'<=':5}
@@ -154,7 +155,7 @@ def trigonometry(items, x, y, modulo=None, ss=True):
     elif len(results) == 3:
         vec = vector()
         for i, xyz in enumerate(['X','Y','Z']):
-            mc.connectAttr(results[i],'%s%s'%(vec,xyz))
+            mc.connectAttr(results[i],'%s%s'%(vec,xyz), f=True)
         return vec
         
     else:
@@ -405,6 +406,17 @@ class EvalElement(object):
         
 # ------------------------------- FUNCTIONS ------------------------------- #
 
+def _degrees(items):
+    ''' Converts incomming values from radians to degrees
+        rad * 57.29577951
+    '''
+    return eval('%s * 57.29577951'%items[0])
+
+def _radians(items):
+    ''' Converts incomming values from degrees to radians
+        deg * 0.017453292
+    '''
+    return eval('%s * 0.017453292'%items[0])
 
 def _easeIn(items):
     ''' Creates a trigonometric function that approximates an easeIn function
@@ -419,7 +431,6 @@ def _easeOut(items):
 def _sin(items, pi=math.pi):
     ''' Creates a trigonometric function that approximates a sine function
     '''       
-    pi = math.pi
     x  = [(-5*pi/2),(5*pi/2),(-3*pi/2),(-1*pi/2),(pi/2),(3*pi/2)]
     y  = [   -1    ,    1   ,     1   ,    -1   ,   1  ,   -1    ]
     return trigonometry(items, x, y, modulo=2*pi)
@@ -432,7 +443,7 @@ def _sind(items):
 def _cos(items, pi=math.pi):
     ''' Creates a trigonometric function that approximates a cosine function
     '''       
-    pi = math.pi
+
     x  = [(-2*pi), (2*pi), (-1*pi), 0, pi]
     y  = [   1   ,    1  ,   -1   , 1, -1]
     return trigonometry(items, x, y, modulo=2*pi)
@@ -444,54 +455,166 @@ def _cosd(items):
 
 
 def _acos(items):
+    ''' Creates a trigonometric function that approximates an arc cosine function
+    '''    
+    
+    # Handle single value or vector
+    items   = getPlugs(items, compound=False)
+    results = []
+    for i in range(len(items[0])):    
+        plug = items[0][i]
+        
+        exp = '''
+        $negate = if(%s<0,1,0)
+        $x   = abs(%s)
+        $ret = -0.0187293
+        $ret = $ret + 0.0742610
+        $ret = $ret * $x
+        $ret = $ret - 0.2121144
+        $ret = $ret * $x
+        $ret = $ret + 1.5707288
+        $ret = $ret * (1.0-$x)**0.5
+        $ret = $ret - 2 * $negate * $ret
+        $negate * 3.14159265358979 + $ret
+        '''%(plug,plug)
 
-    '''
-    float acos(float x) {
-    float negate = float(x < 0);
-    x = abs(x);
-    float ret = -0.0187293;
-    ret = ret * x;
-    ret = ret + 0.0742610;
-    ret = ret * x;
-    ret = ret - 0.2121144;
-    ret = ret * x;
-    ret = ret + 1.5707288;
-    ret = ret * sqrt(1.0-x);
-    ret = ret - 2 * negate * ret;
-    return negate * 3.14159265358979 + ret;  
-    '''
+        results.append(eval(exp))
+     
+        
+    if len(results) == 1:
+        return results[0]
+    
+    elif len(results) == 3:
+        vec = vector()
+        for i, xyz in enumerate(['X','Y','Z']):
+            #mc.connectAttr(results[i],'%s%s'%(vec,xyz), f=True)
+            connect(results[i],'%s%s'%(vec,xyz))
+        return vec
+        
+    else:
+        raise Exception('trigonometric functions ony supports 1 or 3 plugs')    
 
 
 def _asin(items):
+    ''' Creates a trigonometric function that approximates an arc sine function
+    '''    
     
-    '''
-    float negate = float(x < 0);
-    x = abs(x);
-    float ret = -0.0187293;
-    ret *= x;
-    ret += 0.0742610;
-    ret *= x;
-    ret -= 0.2121144;
-    ret *= x;
-    ret += 1.5707288;
-    ret = 3.14159265358979*0.5 - sqrt(1.0 - x)*ret;
-    return ret - 2 * negate * ret;
+    # Handle single value or vector
+    items   = getPlugs(items, compound=False)
+    results = []
+    for i in range(len(items[0])):    
+        plug = items[0][i]
         
-    '''
+        exp = '''
+        $negate = if(%s<0,1,0)
+        $x   = abs(%s)
+        $ret = -0.0187293
+        $ret = $ret * $x
+        $ret = $ret + 0.0742610
+        $ret = $ret * $x
+        $ret = $ret - 0.2121144
+        $ret = $ret * $x
+        $ret = $ret + 1.5707288
+        $ret = 3.14159265358979*0.5 - (1-$x)**0.5 * $ret
+        
+        $ret - 2 * $negate * $ret
+        '''%(plug,plug)
+
+        results.append(eval(exp))
+     
+        
+    if len(results) == 1:
+        return results[0]
     
+    elif len(results) == 3:
+        vec = vector()
+        for i, xyz in enumerate(['X','Y','Z']):
+            #mc.connectAttr(results[i],'%s%s'%(vec,xyz), f=True)
+            connect(results[i],'%s%s'%(vec,xyz))
+        return vec
+        
+    else:
+        raise Exception('trigonometric functions ony supports 1 or 3 plugs')    
+
+
+
+def _acosd(items):
+    ''' Creates a trigonometric function that approximates an arc cosine function (in degrees)
+    '''
+    return eval('degrees(acos(%s))'%items[0])
+   
+
+def _asind(items):
+    ''' Creates a trigonometric function that approximates an arc sine function (in degrees)
+    '''
+    return eval('degrees(asin(%s))'%items[0])
     
     
 def _tan(items):
+    ''' Creates a trigonometric function that approximates a tan function (in radians)
+    '''
+    exp = '''
+    $sin     = sin(%s)
+    $cos     = cos(%s)
+    $divtest = if($cos != 0, $cos, 1)
+    $tan     = $sin/$divtest
+    if($cos != 0, $tan, 16331239353195370)
+    '''%(items[0], items[0])
+
+    return eval(exp)
     
+
+def _tand(items):
+    ''' Creates a trigonometric function that approximates a tan function (in degrees)
     '''
-    float s, c;
-    sincos(a, s, c);
-    return s / c;
+    exp = '''
+    $sin     = sind(%s)
+    $cos     = cosd(%s)
+    $divtest = if($cos != 0, $cos, 1)
+    $tan     = $sin/$divtest
+    if($cos != 0, $tan, 16331239353195370)
+    '''%(items[0], items[0])
+ 
+    return eval(exp)
 
-    '''
-
-
-
+# TODO
+def _atan2(items):
+    pass
+    #float2 atan2(float2 y, float2 x)
+    #{
+    #  float2 t0, t1, t2, t3, t4;
+    #
+    #  t3 = abs(x);
+    #  t1 = abs(y);
+    #  t0 = max(t3, t1);
+    #  t1 = min(t3, t1);
+    #  t3 = float(1) / t0;
+    #  t3 = t1 * t3;
+    #
+    #  t4 = t3 * t3;
+    #  t0 =         - float(0.013480470);
+    #  t0 = t0 * t4 + float(0.057477314);
+    #  t0 = t0 * t4 - float(0.121239071);
+    #  t0 = t0 * t4 + float(0.195635925);
+    #  t0 = t0 * t4 - float(0.332994597);
+    #  t0 = t0 * t4 + float(0.999995630);
+    #  t3 = t0 * t3;
+    #
+    #  t3 = (abs(y) > abs(x)) ? float(1.570796327) - t3 : t3;
+    #  t3 = (x < 0) ?  float(3.141592654) - t3 : t3;
+    #  t3 = (y < 0) ? -t3 : t3;
+    #
+    #  return t3;
+    #}
+        
+        
+# TODO
+def _atan(items):
+    pass
+    #float atan(float x) {
+    #    return _atan2(x, float(1));
+    #}    
+    
 
 
 def _magnitude(items):
@@ -1005,12 +1128,17 @@ def _abs(items):
 
 
 FUNCTIONS = {'abs':                  _abs,
+             'acos':                 _acos,
+             'acosd':                _acosd,
+             'asin':                 _asin,
+             'asind':                _asind,             
              'avg':                  _average,
              'ceil':                 _ceil,
              'clamp':                _clamp,
              'cos':                  _cos,
              'cosd':                 _cosd,
              'cross':                _cross,
+             'degrees':              _degrees,
              'dist':                 _dist,
              'dot':                  _dot,
              'easeIn':               _easeIn,
@@ -1024,11 +1152,14 @@ FUNCTIONS = {'abs':                  _abs,
              'matrixMultiply':       _matrixMultiply,
              'min':                  _min,
              'pointMatrixProduct':   _pointMatrixProduct,
+             'radians':              _radians,
              'rev':                  _reverse,
              'sign':                 _sign,
              'sin':                  _sin,
              'sind':                 _sind,
              'sum':                  _sum,
+             'tan':                  _tan,
+             'tand':                 _tand,
              'unit':                 _unit,
              'vector':               _vector,
              'vectorMatrixProduct':  _vectorMatrixProduct,
@@ -1117,22 +1248,28 @@ def eval(expression, variables=None):
     for line in expression:
 
         # ignore lines that are commented out, or trailing comments
-        if not line.strip().startswith('#'):
+        line = line.strip()
+        if line and not line.startswith('#'):
             
             if '#' in line:
                 line = line.split('#')[0]
+                
+            if line.endswith(';'):
+                line = line[:-1]
     
             
             # --- Process variables --- #
             # Are we piping a result into a variables (line will begin with $... =)
-            stored = re.findall(r'\$.+?=', line)
-            if stored:
-                stored = stored[0]
-                if '.' in stored:
-                    stored=None # this is a normal variable bubstitution
-                else:
-                    line = line.replace(stored, '') # stored var will be set at the end
-                    stored = stored[1:-1].strip()
+            stored=None
+            if line.startswith('$'):
+                stored = re.findall(r'\$.+?=', line)
+                if stored:
+                    stored = stored[0]
+                    if '.' in stored:
+                        stored=None # this is a normal variable bubstitution
+                    else:
+                        line = line.replace(stored, '') # stored var will be set at the end
+                        stored = stored[1:-1].strip()
                 
                 
             # process known variables
@@ -1144,9 +1281,7 @@ def eval(expression, variables=None):
     
     
             # --- evaluate the line --- # 
-            line = line.strip()
-            if line:
-                result = evaluate_line(line)
+            result = evaluate_line(line)
                 
             # store the result
             if stored:
@@ -1160,3 +1295,7 @@ def eval(expression, variables=None):
 
 # example usage
 #eval('pCube1.t = vector(time1.o, sind(time1.o/360 * 90) * 5, 0)')
+
+
+
+

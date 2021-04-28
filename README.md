@@ -16,6 +16,11 @@ Autodesk Maya, pyparsing
 * **Eric Vignola** (eric.vignola@gmail.com)
 
 ## Example
+A simple line that will make a cube surf over time
+```
+eval('pCube1.t = vector(time1.o, sind(time1.o/360 * 90) * 5, 0)')
+```
+
 You can sequentially call the command and reuse the output:
 ```
 # ye olde line projection example
@@ -66,18 +71,22 @@ expression.eval(exp, variables=globals())
 
 ## Supported Functions
 ```
-abs      floor               sign                                   
-avg      if                  sin                       
-ceil     int                 sind                      
-clamp    inv                 sum                       
-cos      mag                 unit                           
-cosd     max                 vector                             
-cross    matrixMultiply      vectorMatrixProduct                
-dist     min                 nCross                             
-dot      pointMatrixProduct  nDot                               
-easeIn   rev                 nPointMatrixProduct                
-easeOut                      nVectorMatrixProduct               
+abs       easeIn                 pointMatrixProduct
+acos      easeOut                radians
+acosd     floor                  rev
+asin      if                     sign
+asind     int                    sin
+avg       inv                    sind
+ceil      mag                    sum
+clamp     matrixMultiply         tan
+cos       max                    tand
+cosd      min                    unit
+cross     nCross                 vector
+degrees   nDot                   vectorMatrixProduct           
+dist      nPointMatrixProduct
+dot       nVectorMatrixProduct
 ```
+
 
 ## License
 BSD 3-Clause License:
