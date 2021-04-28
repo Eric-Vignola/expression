@@ -79,8 +79,8 @@ def getPlugs(items, compound=True):
             
         
         result = [[None]*maxi for _ in items]
-        for i in xrange(len(items)):
-            for j in xrange(maxi):
+        for i in range(len(items)):
+            for j in range(maxi):
                 if counts[i] == 1:
                     result[i][j] = attrs[i][0]
                 else:
@@ -115,7 +115,7 @@ def connect(src, dst):
     #                 matrix ---> matrix
     #print 'CONNECTING: %s ---> %s'%(src,dst)
     src,dst = getPlugs([src,dst])
-    for i in xrange(len(src)):
+    for i in range(len(src)):
         
         #print 'connecting: %s ---> %s'%(src[i],dst[i])
         mc.connectAttr(src[i], dst[i], f=True)
@@ -131,16 +131,16 @@ def trigonometry(items, x, y, modulo=None, ss=True):
     # Handle single value or vector
     items   = getPlugs(items, compound=False)
     results = []
-    for i in xrange(len(items[0])):
+    for i in range(len(items[0])):
         
         plug = items[0][i]
         if modulo:
-            plug = eval(plug+'%'+str(modulo))
+            plug = eval(str(plug)+'%'+str(modulo))
         
         node = mc.createNode('remapValue', ss=ss)
         connect(plug, '%s.inputValue'%node)
         
-        for i in xrange(len(x)):
+        for i in range(len(x)):
             mc.setAttr('%s.value[%s].value_Position'%(node,i),   x[i])
             mc.setAttr('%s.value[%s].value_FloatValue'%(node,i), y[i])
             mc.setAttr('%s.value[%s].value_Interp'%(node,i),     2)
@@ -534,7 +534,7 @@ def _condition(items):
         
         vec = vector()
         xyz = listPlugs(vec)[1:]
-        for i in xrange(len(A)):
+        for i in range(len(A)):
             connect(_condition([A[i],op[i],B[i],true[i],false[i]]),xyz[i])
         
         return vec
@@ -1048,7 +1048,11 @@ def evaluate_line(exp):
     var        = Word(alphas)    
     lpar       = Literal( '(' ).suppress()
     rpar       = Literal( ')' ).suppress()
-    function   = Group(var + lpar + Group(Optional(delimitedList(expression))) + rpar)
+    function   = Group(var + 
+                       lpar + 
+                       Group(Optional(delimitedList(expression))) + 
+                       rpar)
+    
     condition  = oneOf('< <= > >= == !=')
     
     integer    = Word(nums)
@@ -1100,8 +1104,8 @@ def evaluate_line(exp):
 
 def eval(expression, variables=None):
     
-    if isinstance(expression, (str, unicode)):
-        expression = expression.splitlines()
+    if not isinstance(expression, (list, tuple)):
+        expression = str(expression).splitlines()
         
     # init known variables    
     known_variables = {}
@@ -1152,3 +1156,7 @@ def eval(expression, variables=None):
     return result
 
 
+
+
+# example usage
+#eval('pCube1.t = vector(time1.o, sind(time1.o/360 * 90) * 5, 0)')
