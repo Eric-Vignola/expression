@@ -85,6 +85,7 @@ cross     nCross                 vector
 degrees   nDot                   vectorMatrixProduct           
 dist      nPointMatrixProduct
 dot       nVectorMatrixProduct
+          noise
 ```
 
 
