@@ -1,5 +1,5 @@
 import maya.cmds as mc
-import math, re
+import math, re, random
 
 from pyparsing import Forward, Word, Combine, Literal, Optional, Group, ParseResults
 from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
@@ -577,6 +577,7 @@ def _tand(items):
  
     return eval(exp)
 
+
 # TODO
 def _atan2(items):
     pass
@@ -615,6 +616,56 @@ def _atan(items):
     #    return _atan2(x, float(1));
     #}    
     
+    
+    
+    
+def _noise(items):
+    ''' Creates a pseudo random function via perlin noise
+    '''    
+    
+    # Handle single value or vector
+    items   = getPlugs(items, compound=False)
+    results = []
+    for i in range(len(items[0])):    
+        plug = items[0][i]
+           
+        # create a noise node
+        noise = mc.createNode('noise')
+        mc.setAttr('%s.ratio'%noise, 1)
+        mc.setAttr('%s.noiseType'%noise, 4) # set noise to 4d perlin (spacetime)
+        mc.setAttr('%s.frequencyRatio'%noise, CONSTANTS['phi']) # set freq to golden value
+        
+        # animate the time function with a random seed value
+        v0 = random.randint(-1234,1234) + random.random()
+        v1 = v0 + 1             
+        mc.setKeyframe(noise, attribute='time', t=0, v=v0)
+        mc.setKeyframe(noise, attribute='time', t=1, v=v1)
+        curve = mc.listConnections('%s.time'%noise)[0]
+        mc.keyTangent(curve, e=True, itt='linear', ott='linear')
+        mc.setAttr('%s.preInfinity'%curve, 4)
+        mc.setAttr('%s.postInfinity'%curve, 4)
+        
+        
+        # clamp output because sometimes noise goes beyond 0-1 range
+        exp = '%s * clamp(%s.outColorR, 0.001,0.999)'%(plug,noise)
+        results.append(eval(exp))
+     
+        
+    if len(results) == 1:
+        return results[0]
+    
+    elif len(results) == 3:
+        vec = vector()
+        for i, xyz in enumerate(['X','Y','Z']):
+            #mc.connectAttr(results[i],'%s%s'%(vec,xyz), f=True)
+            connect(results[i],'%s%s'%(vec,xyz))
+        return vec
+        
+    else:
+        raise Exception('random functions ony supports 1 or 3 plugs')    
+
+
+
 
 
 def _magnitude(items):
@@ -1151,6 +1202,7 @@ FUNCTIONS = {'abs':                  _abs,
              'max':                  _max,
              'matrixMultiply':       _matrixMultiply,
              'min':                  _min,
+             'noise':                _noise,
              'pointMatrixProduct':   _pointMatrixProduct,
              'radians':              _radians,
              'rev':                  _reverse,
@@ -1280,7 +1332,8 @@ def eval(expression, variables=None):
                         line = line.replace(var, known_variables[var[1:]])
     
     
-            # --- evaluate the line --- # 
+            # --- evaluate the line --- #
+            #print ('eval: %s'%line)
             result = evaluate_line(line)
                 
             # store the result
@@ -1295,7 +1348,5 @@ def eval(expression, variables=None):
 
 # example usage
 #eval('pCube1.t = vector(time1.o, sind(time1.o/360 * 90) * 5, 0)')
-
-
 
 
