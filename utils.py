@@ -66,28 +66,29 @@ def getPlugs(items, compound=True):
         attrs.append(listPlugs(obj, next_free_plug=bool(i)))
 
     counts = [len(x) for x in attrs]
-    maxi   = max(counts)-1
-    
-    # If all counts the same
-    if [counts[0]]*len(counts) == counts and compound:
-        return [[x[0]] for x in attrs]
-    
-    else:
-    
-        # Compound mode off
-        if maxi == 0 and not compound:
-            return attrs
-            
+    if counts:
+        maxi   = max(counts)-1
         
-        result = [[None]*maxi for _ in items]
-        for i in range(len(items)):
-            for j in range(maxi):
-                if counts[i] == 1:
-                    result[i][j] = attrs[i][0]
-                else:
-                    result[i][j] = attrs[i][min(counts[i],j+1)]
-    
-        return result
+        # If all counts the same
+        if [counts[0]]*len(counts) == counts and compound:
+            return [[x[0]] for x in attrs]
+        
+        else:
+        
+            # Compound mode off
+            if maxi == 0 and not compound:
+                return attrs
+                
+            
+            result = [[None]*maxi for _ in items]
+            for i in range(len(items)):
+                for j in range(maxi):
+                    if counts[i] == 1:
+                        result[i][j] = attrs[i][0]
+                    else:
+                        result[i][j] = attrs[i][min(counts[i],j+1)]
+        
+            return result
 
 
 
@@ -616,6 +617,25 @@ def _atan(items):
     #    return _atan2(x, float(1));
     #}    
     
+    
+
+def _frame(items):
+    ''' Simulates "current frame" via a motion curve
+    '''
+    
+    if items:
+        raise Exception('frame functions does not expect inputs') 
+    
+    curve = mc.createNode('animCurveTU')
+    mc.setKeyframe(curve, t=0, v=0.)
+    mc.setKeyframe(curve, t=1, v=1.)
+    mc.keyTangent(curve, e=True, itt='linear', ott='linear')
+    mc.setAttr('%s.preInfinity'%curve, 4)
+    mc.setAttr('%s.postInfinity'%curve, 4)
+    
+    return '%s.o'%curve
+
+
     
     
     
@@ -1195,6 +1215,7 @@ FUNCTIONS = {'abs':                  _abs,
              'easeIn':               _easeIn,
              'easeOut':              _easeOut,
              'floor':                _floor,
+             'frame':                _frame,
              'if':                   _condition,
              'int':                  _int,
              'inv':                  _inverse,
@@ -1348,5 +1369,7 @@ def eval(expression, variables=None):
 
 # example usage
 #eval('pCube1.t = vector(time1.o, sind(time1.o/360 * 90) * 5, 0)')
+
+
 
 
