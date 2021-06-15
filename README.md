@@ -71,27 +71,28 @@ expression.eval(exp, variables=globals())
 
 ## Supported Functions
 ```
-abs       easeIn                 pointMatrixProduct
-acos      easeOut                radians
-acosd     floor                  rev
-asin      if                     sign
-asind     int                    sin
-avg       inv                    sind
-ceil      mag                    sum
-clamp     matrixMultiply         tan
-cos       max                    tand
-cosd      min                    unit
-cross     nCross                 vector
-degrees   nDot                   vectorMatrixProduct           
-dist      nPointMatrixProduct
-dot       nVectorMatrixProduct
-          noise
+abs       floor                  pointMatrixProduct
+acos      frame                  radians
+acosd     if                     rev
+asin      int                    sign
+asind     inv                    sin
+avg       mag                    sind
+ceil      matrixMultiply         sum
+clamp     max                    tan
+cos       min                    tand
+cosd      nCross                 unit
+cross     nDot                   vector
+degrees   nPointMatrixProduct    vectorMatrixProduct           
+dist      nVectorMatrixProduct   
+dot       noise
+easeIn    
+easeOut    
 ```
 
 
 ## License
 BSD 3-Clause License:
-Copyright (c)  2020, Eric Vignola 
+Copyright (c)  2021, Eric Vignola 
 All rights reserved. 
 
 Redistribution and use in source and binary forms, with or without 
