@@ -9,7 +9,8 @@ CONSTANTS = {'e': math.e,
              'pi': math.pi,
              'twopi': (math.pi * 2),
              'halfpi': (math.pi / 2),
-             'phi': ((1 + 5 ** 0.5) / 2)}
+             'phi': ((1 + 5 ** 0.5) / 2),
+             'None':None}
 
 CONDITIONS = {'==': 0, '!=': 1, '>': 2, '>=': 3, '<': 4, '<=': 5}
 
@@ -346,6 +347,8 @@ class EvalElement(object):
             except:
                 # CONSTANT
                 if self.value in CONSTANTS:
+                    if self.value == 'None':
+                        return None
                     return constant(CONSTANTS[self.value], ss=True)
 
                 # node.attr
@@ -1092,9 +1095,16 @@ def _vector(items):
         raise Exception('vector requires 3 inputs, given: %s' % items)
 
     node = vector(name='vector1', at='double')
-    connect(items[0], '%sX' % node)
-    connect(items[1], '%sY' % node)
-    connect(items[2], '%sZ' % node)
+    for i, xyz in enumerate(['%s%s'%(node,x) for x in 'XYZ']):
+        
+        # skip 'None'
+        if not items[i] is None:
+            connect(items[i], xyz)
+        
+        
+    #connect(items[0], '%sX' % node)
+    #connect(items[1], '%sY' % node)
+    #connect(items[2], '%sZ' % node)
 
     return node
 
@@ -1106,12 +1116,13 @@ def _matrix(items):
         raise Exception('matrix constructor accepts up to 4 inputs, given: %s' % items)
     
     items = getPlugs(items, compound=False)
-
+    
     M = mc.createNode('fourByFourMatrix')
     for i in xrange(len(items)):
         for j in xrange(len(items[i])):
-            plug = '%s.in%s%s'%(M, i, j)
-            connect(items[i][j], plug)
+            if not items[i][j] is None:
+                plug = '%s.in%s%s'%(M, i, j)
+                connect(items[i][j], plug)
 
     return '%s.output'%M
 
@@ -1209,7 +1220,7 @@ def evaluate_line(exp):
     signop = oneOf('+ -')
     multop = oneOf('* / % //')
     plusop = oneOf('+ -')
-    expop = Literal('**')
+    expop  = Literal('**')
 
     # use parse actions to attach EvalXXX constructors to sub-expressions
     operand.setParseAction(EvalElement)
