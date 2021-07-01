@@ -176,6 +176,12 @@ def multiplyDivide(op, items, ss=True, lock=True):
 
         connect(items[0], '%s.input1' % node)
         connect(items[1], '%s.input2' % node)
+        
+        
+        # Force single output if both inputs are single numerics
+        counts = getPlugs(items, compound=False)
+        if all(len(x) == 1 for x in counts):
+            return '%s.outputX' % node
 
         return '%s.output' % node
 
@@ -208,6 +214,15 @@ def plusMinusAverage(op, items, lock=True):
 
     else:
         raise Exception('unsupported operator: %s' % op)
+
+
+    # Force single output if both inputs are single numerics
+    counts = getPlugs(items, compound=False)
+    if all(len(x) == 1 for x in counts):
+        for i, obj in enumerate(items):
+            connect(obj, '%s.input1D[%s]' % (node, i))
+    
+        return '%s.output1D' % node
 
     # Connect
     for i, obj in enumerate(items):
@@ -669,7 +684,7 @@ def _condition(items):
         connect(true[0], '%s.colorIfTrue' % node)
         connect(false[0], '%s.colorIfFalse' % node)
 
-        return '%s.outColor' % node
+        return '%s.outColorR' % node
 
 
     elif len(A[0]) > 1:
@@ -696,6 +711,10 @@ def _clamp(items):
         connect(items[1], '%s.min' % node)
         connect(items[2], '%s.max' % node)
         connect(items[0], '%s.input' % node)
+
+        counts = getPlugs(items, compound=False)
+        if all(len(x) == 1 for x in counts):
+            return '%s.outputR' % node
 
         return '%s.output' % node
 
@@ -1286,12 +1305,12 @@ def eval(expression, variables=None):
                         line = line.replace(stored, '')  # stored var will be set at the end
                         stored = stored[1:-1].strip()
 
-            # process known variables
+            # process known variables and convert any numerics to str
             if known_variables:
-                v = sorted([x for x in re.findall("[\d$A-Za-z]*", line) if x.startswith('$')])[::-1]
+                v = sorted([x for x in re.findall("[\d$A-Za-z_]*", line) if x.startswith('$')])[::-1]
                 for var in v:
                     if var[1:] in known_variables:
-                        line = line.replace(var, known_variables[var[1:]])
+                        line = line.replace(var, str(known_variables[var[1:]]))
 
             # --- evaluate the line --- #
             # print ('eval: %s'%line)
