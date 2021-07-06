@@ -1,8 +1,12 @@
-import maya.cmds as mc
-import math, re, random
+import cmd
+import math
+import random
+import re
 
-from pyparsing import Forward, Word, Combine, Literal, Optional, Group, ParseResults
-from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
+import maya.cmds as mc
+
+from .pyparsing import Forward, Word, Combine, Literal, Optional, Group, ParseResults
+from .pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
 
 # Define some known constants
 CONSTANTS = {'e': math.e,
@@ -10,14 +14,15 @@ CONSTANTS = {'e': math.e,
              'twopi': (math.pi * 2),
              'halfpi': (math.pi / 2),
              'phi': ((1 + 5 ** 0.5) / 2),
-             'None':None}
+             'None': None}
 
 CONDITIONS = {'==': 0, '!=': 1, '>': 2, '>=': 3, '<': 4, '<=': 5}
 
 
 def nextFreePlug(node_att):
-    ''' Returns the next valid plug
-    '''
+    """ 
+    Returns the next valid plug index.
+    """
 
     try:
         split = node_att.split('.')
@@ -51,6 +56,10 @@ def listPlugs(node_att, next_free_plug=True):
 
 
 def getPlugs(items, compound=True):
+    """
+    Enumerates input plugs.
+    ex: compoud=False means that pCube1.t ---> pCube1.tx, pCube1.ty, pCube1.tz
+    """
     if not isinstance(items, (list, tuple)):
         items = [items]
 
@@ -84,8 +93,9 @@ def getPlugs(items, compound=True):
 
 
 def isMatrix(item):
-    ''' Check if plug is a matrix or not
-    '''
+    """ 
+    Check if plug is a type matrix or not.
+    """
     if mc.getAttr(item, type=True) == 'matrix':
         return True
 
@@ -108,7 +118,9 @@ def connect(src, dst):
 
 
 def trigonometry(items, x, y, modulo=None, ss=True):
-    # Handle single value or vector
+    """
+    Sets up sine/cosine functions using a ramapValue node.
+    """
     items = getPlugs(items, compound=False)
     results = []
     for i in range(len(items[0])):
@@ -120,10 +132,10 @@ def trigonometry(items, x, y, modulo=None, ss=True):
         node = mc.createNode('remapValue', ss=ss)
         connect(plug, '%s.inputValue' % node)
 
-        for i in range(len(x)):
-            mc.setAttr('%s.value[%s].value_Position' % (node, i), x[i])
-            mc.setAttr('%s.value[%s].value_FloatValue' % (node, i), y[i])
-            mc.setAttr('%s.value[%s].value_Interp' % (node, i), 2)
+        for j in range(len(x)):
+            mc.setAttr('%s.value[%s].value_Position' % (node, j), x[j])
+            mc.setAttr('%s.value[%s].value_FloatValue' % (node, j), y[j])
+            mc.setAttr('%s.value[%s].value_Interp' % (node, j), 2)
 
         results.append('%s.outValue' % node)
 
@@ -141,6 +153,9 @@ def trigonometry(items, x, y, modulo=None, ss=True):
 
 
 def multiplyDivide(op, items, ss=True, lock=True):
+    """
+    Handles multiply/divide operations on floats, vectors, and matrices.
+    """
     mat0 = isMatrix(items[0])
     mat1 = isMatrix(items[1])
 
@@ -154,7 +169,6 @@ def multiplyDivide(op, items, ss=True, lock=True):
         # floor division
         elif op == '//':
             return eval('floor(%s/%s)' % (items[0], items[1]))
-
 
         else:
             node = mc.createNode('multiplyDivide', ss=ss)
@@ -176,15 +190,13 @@ def multiplyDivide(op, items, ss=True, lock=True):
 
         connect(items[0], '%s.input1' % node)
         connect(items[1], '%s.input2' % node)
-        
-        
+
         # Force single output if both inputs are single numerics
         counts = getPlugs(items, compound=False)
         if all(len(x) == 1 for x in counts):
             return '%s.outputX' % node
 
         return '%s.output' % node
-
 
     else:
 
@@ -197,7 +209,12 @@ def multiplyDivide(op, items, ss=True, lock=True):
             return _vectorMatrixProduct(items)
 
 
+# TODO: Matrices?
 def plusMinusAverage(op, items, lock=True):
+    """
+    Handles plus, minus, average operations on floats and vectors.
+    """
+
     node = mc.createNode('plusMinusAverage', ss=True)
 
     # plus
@@ -215,13 +232,12 @@ def plusMinusAverage(op, items, lock=True):
     else:
         raise Exception('unsupported operator: %s' % op)
 
-
     # Force single output if both inputs are single numerics
     counts = getPlugs(items, compound=False)
     if all(len(x) == 1 for x in counts):
         for i, obj in enumerate(items):
             connect(obj, '%s.input1D[%s]' % (node, i))
-    
+
         return '%s.output1D' % node
 
     # Connect
@@ -232,13 +248,19 @@ def plusMinusAverage(op, items, lock=True):
 
 
 def constant(value=0, ss=True, at='double', name='constant1'):
+    """
+    Creates a numeric value using a network node.
+    """
     node = mc.createNode('network', name=name, ss=ss)
     mc.addAttr(node, ln='value', at=at, dv=float(value), keyable=True)
 
     return '%s.value' % node
 
 
-def vector(xyz=[0, 0, 0], ss=True, at='double', name='vector1'):
+def vector(xyz=(0, 0, 0), ss=True, at='double', name='vector1'):
+    """
+    Defines a vector as a network node with a vector type attribute.
+    """
     xyz = [float(x) for x in xyz]
     node = mc.createNode('network', name=name, ss=ss)
 
@@ -251,7 +273,10 @@ def vector(xyz=[0, 0, 0], ss=True, at='double', name='vector1'):
 
 
 def operatorOperands(tokenlist):
-    "generator to extract operators and operands in pairs"
+    """
+    PyParsing generator to extract operators and operands in pairs.
+    """
+
     it = iter(tokenlist)
     while 1:
         try:
@@ -261,7 +286,9 @@ def operatorOperands(tokenlist):
 
 
 class EvalSignOp(object):
-    "Class to evaluate expressions with a leading + or - sign"
+    """
+    PyParsing class to evaluate expressions with a leading + or - sign.
+    """
 
     def __init__(self, tokens):
         self.sign, self.value = tokens[0]
@@ -274,7 +301,9 @@ class EvalSignOp(object):
 
 
 class EvalPowerOp(object):
-    "Class to evaluate multiplication and division expressions"
+    """
+    PyParsing class to evaluate power expressions.
+    """
 
     def __init__(self, tokens):
         self.value = tokens[0]
@@ -287,7 +316,9 @@ class EvalPowerOp(object):
 
 
 class EvalMultOp(object):
-    "Class to evaluate multiplication and division expressions"
+    """
+    PyParsing class to evaluate multiplication and division expressions.
+    """
 
     def __init__(self, tokens):
         self.value = tokens[0]
@@ -301,7 +332,9 @@ class EvalMultOp(object):
 
 
 class EvalAddOp(object):
-    "Class to evaluate addition and subtraction expressions"
+    """
+    PyParsing class to evaluate addition and subtraction expressions.
+    """
 
     def __init__(self, tokens):
         self.value = tokens[0]
@@ -315,7 +348,9 @@ class EvalAddOp(object):
 
 
 class EvalComparisonOp(object):
-    "Class to evaluate comparison expressions"
+    """
+    PyParsing class to evaluate comparison expressions.
+    """
 
     def __init__(self, tokens):
         self.value = tokens[0]
@@ -332,7 +367,9 @@ class EvalComparisonOp(object):
 
 
 class EvalElement(object):
-    "Class to evaluate a parsed constant or variable"
+    """
+    PyParsing class to evaluate a parsed constant or variable.
+    """
 
     def __init__(self, tokens):
         self.value = tokens[0]
@@ -349,7 +386,6 @@ class EvalElement(object):
                 plugs.append(item.eval())
 
             return FUNCTIONS[function](plugs)
-
 
         # Real, Constant, or node.attr 
         else:
@@ -379,48 +415,106 @@ class EvalElement(object):
 # ------------------------------- FUNCTIONS ------------------------------- #
 
 def _degrees(items):
-    ''' Converts incomming values from radians to degrees
-        rad * 57.29577951
-    '''
+    """
+    degrees(<input>)
+    
+        Converts incomming values from radians to degrees.
+        (obj in radians * 57.29577951)
+    
+        Examples
+        --------
+        >>> degrees(radians(pCube1.rx)) # returns a network which converts rotationX to radians and back to degrees.
+        >>> degrees(radians(pCube1.r))  # returns a network which converts [rx, ry, rz] to radians and back to degrees.
+    """
     return eval('%s * 57.29577951' % items[0])
 
 
 def _radians(items):
-    ''' Converts incomming values from degrees to radians
-        deg * 0.017453292
-    '''
+    """ 
+    radians(<input>)
+    
+        Converts incomming values from degrees to radians.
+        (input in degrees * 0.017453292)
+    
+        Examples
+        --------
+        >>> radians(pCube1.rx) # returns a network which converts rotationX to radians.
+        >>> radians(pCube1.r)  # returns a network which converts [rx, ry, rz] to radians.
+    """
     return eval('%s * 0.017453292' % items[0])
 
 
+# TODO: add built in start, stop remap values
 def _easeIn(items):
-    ''' Creates a trigonometric function that approximates an easeIn function
-    '''
+    """ 
+    easeIn(<input>)
+    
+        Creates an easeIn "tween" function.
+    
+        Examples
+        --------
+        >>> easeIn(pCube1.tx) # returns a network which tweens pCube1's translateX value.
+        >>> easeIn(pCube1.t)  # returns a network which tweens pCube1's [tx, ty, tz] values.
+    """
     return trigonometry(items, x=[0, 1], y=[0, 1])
 
 
+# TODO: add built in start, stop remap values
 def _easeOut(items):
-    ''' Creates a trigonometric function that approximates an easeOut function
-    '''
+    """ 
+    easeOut(<input>)
+    
+        Creates an easeIn "tween" function.
+    
+        Examples
+        --------
+        >>> easeOut(pCube1.tx) # returns a network which tweens pCube1's translateX value.
+        >>> easeOut(pCube1.t)  # returns a network which tweens pCube1's [tx, ty, tz] values.
+    """
     return trigonometry(items, x=[1, 0], y=[0, 1])
 
 
 def _sin(items, pi=math.pi):
-    ''' Creates a trigonometric function that approximates a sine function
-    '''
+    """ 
+    sin(<input>)
+    
+        Creates a sine function (in radians).
+    
+        Examples
+        --------
+        >>> sin(pCube1.tx) # returns a network which passes pCube1's translateX into a sine function.
+        >>> sin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a sine functions.
+    """
     x = [(-5 * pi / 2), (5 * pi / 2), (-3 * pi / 2), (-1 * pi / 2), (pi / 2), (3 * pi / 2)]
     y = [-1, 1, 1, -1, 1, -1]
     return trigonometry(items, x, y, modulo=2 * pi)
 
 
 def _sind(items):
-    ''' Creates a trigonometric function that approximates a sine function (in degrees)
-    '''
+    """ 
+    sind(<input>)
+    
+        Creates a sine function (in degrees).
+    
+        Examples
+        --------
+        >>> sind(pCube1.tx) # returns a network which passes pCube1's translateX into a sine function.
+        >>> sind(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a sine functions.
+    """
     return _sin(items, pi=180.)
 
 
 def _cos(items, pi=math.pi):
-    ''' Creates a trigonometric function that approximates a cosine function
-    '''
+    """ 
+    cos(<input>)
+    
+        Creates a cosine function (in radians).
+    
+        Examples
+        --------
+        >>> cos(pCube1.tx) # returns a network which passes pCube1's translateX into a cosine function.
+        >>> cos(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a cosine functions.
+    """
 
     x = [(-2 * pi), (2 * pi), (-1 * pi), 0, pi]
     y = [1, 1, -1, 1, -1]
@@ -428,22 +522,38 @@ def _cos(items, pi=math.pi):
 
 
 def _cosd(items):
-    ''' Creates a trigonometric function that approximates a cosine function (in degrees)
-    '''
+    """ 
+    cosd(<input>)
+    
+        Creates a cosine function (in degrees).
+    
+        Examples
+        --------
+        >>> cosd(pCube1.tx) # returns a network which passes pCube1's translateX into a cosine function.
+        >>> cosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a cosine functions.
+    """
     return _cos(items, pi=180.)
 
 
 def _acos(items):
-    ''' Creates a trigonometric function that approximates an arc cosine function
-    '''
+    """ 
+    acos(<input>)
+    
+        Approximates an arc cosine function (in radians).
+    
+        Examples
+        --------
+        >>> acos(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine approximation function.
+        >>> acos(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine approximation functions.
+    """
 
-    # Handle single value or vector
+    # https://developer.download.nvidia.com/cg/acos.html
     items = getPlugs(items, compound=False)
     results = []
     for i in range(len(items[0])):
         plug = items[0][i]
 
-        exp = '''
+        exp = """
         $negate = if(%s<0,1,0)
         $x   = abs(%s)
         $ret = -0.0187293
@@ -455,7 +565,7 @@ def _acos(items):
         $ret = $ret * (1.0-$x)**0.5
         $ret = $ret - 2 * $negate * $ret
         $negate * 3.14159265358979 + $ret
-        ''' % (plug, plug)
+        """ % (plug, plug)
 
         results.append(eval(exp))
 
@@ -474,16 +584,24 @@ def _acos(items):
 
 
 def _asin(items):
-    ''' Creates a trigonometric function that approximates an arc sine function
-    '''
+    """ 
+    asin(<input>)
+    
+        Approximates an arc sine function (in radians).
+    
+        Examples
+        --------
+        >>> asin(pCube1.tx) # returns a network which passes pCube1's translateX into an arc sine approximation function.
+        >>> asin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc sine approximation functions.
+    """
 
-    # Handle single value or vector
+    # https://developer.download.nvidia.com/cg/asin.html
     items = getPlugs(items, compound=False)
     results = []
     for i in range(len(items[0])):
         plug = items[0][i]
 
-        exp = '''
+        exp = """
         $negate = if(%s<0,1,0)
         $x   = abs(%s)
         $ret = -0.0187293
@@ -496,7 +614,7 @@ def _asin(items):
         $ret = 3.14159265358979*0.5 - (1-$x)**0.5 * $ret
         
         $ret - 2 * $negate * $ret
-        ''' % (plug, plug)
+        """ % (plug, plug)
 
         results.append(eval(exp))
 
@@ -515,41 +633,76 @@ def _asin(items):
 
 
 def _acosd(items):
-    ''' Creates a trigonometric function that approximates an arc cosine function (in degrees)
-    '''
+    """ 
+    acosd(<input>)
+    
+        Approximates an arc cosine function (in degrees).
+    
+        Examples
+        --------
+        >>> acosd(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine approximation function.
+        >>> acosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine approximation functions.
+    """
     return eval('degrees(acos(%s))' % items[0])
 
 
 def _asind(items):
-    ''' Creates a trigonometric function that approximates an arc sine function (in degrees)
-    '''
+    """ 
+    asind(<input>)
+    
+        Approximates an arc sine function (in radians).
+    
+        Examples
+        --------
+        >>> asind(pCube1.tx) # returns a network which passes pCube1's translateX into an arc sine approximation function.
+        >>> asind(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc sine approximation functions.
+    """
     return eval('degrees(asin(%s))' % items[0])
 
 
 def _tan(items):
-    ''' Creates a trigonometric function that approximates a tan function (in radians)
-    '''
-    exp = '''
+    """ 
+    tan(<input>)
+    
+        Approximates a tan function (in radians).
+    
+        Examples
+        --------
+        >>> tan(pCube1.tx) # returns a network which passes pCube1's translateX into a tan approximation function.
+        >>> tan(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a tan approximation functions.
+    """
+
+    # https://developer.download.nvidia.com/cg/tan.html
+    exp = """
     $sin     = sin(%s)
     $cos     = cos(%s)
     $divtest = if($cos != 0, $cos, 1)
     $tan     = $sin/$divtest
     if($cos != 0, $tan, 16331239353195370)
-    ''' % (items[0], items[0])
+    """ % (items[0], items[0])
 
     return eval(exp)
 
 
 def _tand(items):
-    ''' Creates a trigonometric function that approximates a tan function (in degrees)
-    '''
-    exp = '''
+    """ 
+    tand(<input>)
+    
+        Approximates a tan function (in degrees).
+    
+        Examples
+        --------
+        >>> tand(pCube1.tx) # returns a network which passes pCube1's translateX into a tan approximation function.
+        >>> tand(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a tan approximation functions.
+    """
+
+    exp = """
     $sin     = sind(%s)
     $cos     = cosd(%s)
     $divtest = if($cos != 0, $cos, 1)
     $tan     = $sin/$divtest
     if($cos != 0, $tan, 16331239353195370)
-    ''' % (items[0], items[0])
+    """ % (items[0], items[0])
 
     return eval(exp)
 
@@ -593,9 +746,17 @@ def _atan(items):
     # }
 
 
+# TODO: add input as a time offset
 def _frame(items):
-    ''' Simulates "current frame" via a motion curve
-    '''
+    """ 
+    frame()
+    
+        Outputs "current frame" via an infinite linear motion curve.
+    
+        Examples
+        --------
+        >>> frame() # returns a current time slider value.
+    """
 
     if items:
         raise Exception('frame functions does not expect inputs')
@@ -610,9 +771,18 @@ def _frame(items):
     return '%s.o' % curve
 
 
+# TODO: this is still experimental.
 def _noise(items):
-    ''' Creates a pseudo random function via perlin noise
-    '''
+    """ 
+    noise(<input>)
+    
+        Creates a pseudo random function via perlin noise.
+    
+        Examples
+        --------
+        >>> noise(pCube1.tx) # Applies noise to pCube1's translateX value.
+        >>> noise(pCube1.t)  # Applies noise to pCube1's [tx, ty, tz] values.
+    """
 
     # Handle single value or vector
     items = getPlugs(items, compound=False)
@@ -655,8 +825,16 @@ def _noise(items):
 
 
 def _magnitude(items):
-    ''' Creates a distanceBetween node to calculate the magnitude of a vector
-    '''
+    """ 
+    mag(<input>)
+    
+        Returns the magnitude of a vector.
+    
+        Examples
+        --------
+        >>> mag(pCube1.t)  # Computes the magnitude of [tx, ty, tz].
+    """
+
     if len(items) != 1:
         raise Exception('mag requires 1 input, given: %s' % items)
 
@@ -667,8 +845,16 @@ def _magnitude(items):
 
 
 def _condition(items):
-    ''' Creates condition node to sove "if" statements
-    '''
+    """ 
+    if(<input> <op> <input>, <input if true>, <input if false>)
+    
+        Creates condition node to solve "if" statements.
+    
+        Examples
+        --------
+        >>> if(pCube1.t > pCube2.t, 0, pCube3.t)
+        >>> if(pCube1.rx < 45, pCube1.rx, 45) # outputs pCube1.rx's value with a maximum of 45
+    """
     if len(items) != 5:
         raise Exception('cond() needs 5 items: [a,cond_op,b,val if true,val if false]. Given: %s' % items)
 
@@ -697,10 +883,19 @@ def _condition(items):
         return vec
 
 
+# TODO: Use None to only limit one way, like clamp(pCube1.ty, 0, None)
 def _clamp(items):
-    ''' Creates a _cond based network to clamp a value between min and max if input term == min or max.
-        Otherwise use a clamp node. 
-    '''
+    """ 
+    clamp(<input>, <input min>, <input max>)
+    
+        Clamps values between a min and a max.
+    
+        Examples
+        --------
+        >>> clamp(pCube1.ty, 0, pCube2.ty) # clamps pCube1.ty value between 0 and pCube2.ty
+        >>> clamp(pCube1.t, -1, 1) # clamps [tx, ty, tz] of pCube1 between -1 and 1
+    """
+
     if len(items) != 3:
         raise Exception('clamp() requires 3 inputs, given: %s' % items)
 
@@ -724,8 +919,16 @@ def _clamp(items):
     return _condition([MIN, '>', items[1], MIN, items[1]])
 
 
+# TODO: support Matrix dot product?
 def _dot(items):
-    """ Creates a vectorProduct node to do a dot product
+    """ 
+    dot(<input>, <input>)
+    
+        Uses a vectorProduct to do a dot product between two vector inputs.
+    
+        Examples
+        --------
+        >>> dot(pCube1.t, pCube2.t)
     """
     if len(items) != 2:
         raise Exception('dot requires 2 inputs, given: %s' % items)
@@ -741,7 +944,14 @@ def _dot(items):
 
 
 def _nDot(items):
-    """ Creates a vectorProduct node to do a normalized dot product
+    """ 
+    ndot(<input>, <input>)
+    
+        Uses a normalized vectorProduct to do a dot product between two vector inputs.
+    
+        Examples
+        --------
+        >>> ndot(pCube1.t, pCube2.t)
     """
     if len(items) != 2:
         raise Exception('dot requires 2 inputs, given: %s' % items)
@@ -757,7 +967,14 @@ def _nDot(items):
 
 
 def _cross(items):
-    """ Creates a vectorProduct node to do a cross product
+    """ 
+    cross(<input>, <input>)
+    
+        Uses a vectorProduct to do a cross product between two vector inputs.
+    
+        Examples
+        --------
+        >>> cross(pCube1.t, pCube2.t)
     """
     if len(items) != 2:
         raise Exception('dot requires 2 inputs, given: %s' % items)
@@ -773,8 +990,16 @@ def _cross(items):
 
 
 def _nCross(items):
-    """ Creates a vectorProduct node to do a normalized cross product
+    """ 
+    ncross(<input>, <input>)
+    
+        Uses a normalized vectorProduct to do a cross product between two vector inputs.
+    
+        Examples
+        --------
+        >>> ncross(pCube1.t, pCube2.t)
     """
+
     if len(items) != 2:
         raise Exception('dot requires 2 inputs, given: %s' % items)
 
@@ -789,8 +1014,16 @@ def _nCross(items):
 
 
 def _unit(items):
-    ''' Creates a network to yield a unit vector from a vector
-    '''
+    """ 
+    unit(<input>)
+    
+        Creates a network that yields a unit vector.
+    
+        Examples
+        --------
+        >>> unit(pCube1.t)
+    """
+
     if len(items) != 1:
         raise Exception('unit() requires 1 input, given: %s' % items)
 
@@ -808,8 +1041,15 @@ def _unit(items):
 
 
 def _inverse(items):
-    ''' Creates a network to do a 0-x mirror operation
-    '''
+    """ 
+    inv(<input>)
+    
+        Creates a network to yields a (0.0-x) mirror operation.
+    
+        Examples
+        --------
+        >>> inv(pCube1.t)
+    """
     if len(items) != 1:
         raise Exception('inv() requires 1 input, given: %s' % items)
 
@@ -822,8 +1062,15 @@ def _inverse(items):
 
 
 def _reverse(items):
-    ''' Creates a reverse node to do a 1-x operation
-    '''
+    """ 
+    rev(<input>)
+    
+        Creates a reverse node to do a (1.0-x) operation.
+    
+        Examples
+        --------
+        >>> rev(pCube1.t)
+    """
     if len(items) != 1:
         raise Exception('rev() requires 1 input, given: %s' % items)
 
@@ -834,8 +1081,16 @@ def _reverse(items):
 
 
 def _average(items):
-    ''' Single node operation to average all items in the list
-    '''
+    """ 
+    avg(<input>, <input>, <input>, ...)
+    
+        Single node operation to average all items in the list.
+    
+        Examples
+        --------
+        >>> avg(pCube1.t, pCube2.t, pCube3.t, pCube4.t)
+    """
+
     if len(items) < 2:
         raise Exception('avg() requires minimum 2 inputs, given: %s' % items)
 
@@ -843,8 +1098,16 @@ def _average(items):
 
 
 def _sum(items):
-    ''' Single node operation to add all items in the list
-    '''
+    """ 
+    sum(<input>, <input>, <input>, ...)
+    
+        Single node operation to sum all items in the list.
+    
+        Examples
+        --------
+        >>> sum(pCube1.t, pCube2.t, pCube3.t, pCube4.t)
+    """
+
     if len(items) < 2:
         raise Exception('sum() requires minimum 2 inputs, given: %s' % items)
 
@@ -852,9 +1115,16 @@ def _sum(items):
 
 
 def _int(items):
-    ''' Turns float to int
-        Also correct's Maya's int convention int(1.5) ---> 2  !!!! so wrong !!!!
-    '''
+    """ 
+    int(<input>)
+    
+        Turns a float value(s) into an int.
+    
+        Examples
+        --------
+        >>> int(pCube1.t)
+        >>> int(pCube1.tx)
+    """
 
     if len(items) != 1:
         raise Exception('int() requires 1 input, given: %s' % items)
@@ -877,8 +1147,16 @@ def _int(items):
 
 
 def _max(items):
-    ''' Returns the highest value in the list of items
-    '''
+    """ 
+    max(<input>, <input>, <input>, ...)
+    
+        Returns the highest value in the list of inputs.
+    
+        Examples
+        --------
+        >>> max(pCube1.t, pCube2.t, pCube3.t, pCube4.t)
+    """
+
     if len(items) < 2:
         raise Exception('max() requires minimum 2 inputs, given: %s' % items)
 
@@ -890,8 +1168,16 @@ def _max(items):
 
 
 def _min(items):
-    ''' Returns the lowest value in the list of items
-    '''
+    """ 
+    min(<input>, <input>, <input>, ...)
+    
+        Returns the lowest value in the list of inputs.
+    
+        Examples
+        --------
+        >>> min(pCube1.t, pCube2.t, pCube3.t, pCube4.t)
+    """
+
     if len(items) < 2:
         raise Exception('min() requires minimum 2 inputs, given: %s' % items)
 
@@ -903,8 +1189,16 @@ def _min(items):
 
 
 def _sign(items):
-    ''' Returns -1 for values < 0
-    '''
+    """ 
+    sign(<input>)
+    
+        Returns -1 for values < 0. +1 for values >= 0.
+    
+        Examples
+        --------
+        >>> sign(pCube1.t)
+        >>> sign(pCube1.tx)
+    """
     if len(items) != 1:
         raise Exception('sign() requires 1 input, given: %s' % items)
 
@@ -912,8 +1206,16 @@ def _sign(items):
 
 
 def _floor(items):
-    ''' Returns floor value of input
-    '''
+    """ 
+    floor(<input>)
+    
+        Returns the floor value of the input.
+    
+        Examples
+        --------
+        >>> floor(pCube1.t)
+        >>> floor(pCube1.tx)
+    """
 
     if len(items) != 1:
         raise Exception('floor() requires 1 input, given: %s' % items)
@@ -931,8 +1233,16 @@ def _floor(items):
 
 
 def _ceil(items):
-    ''' Returns ceiling value of input
-    '''
+    """ 
+    ceil(<input>)
+    
+        Returns the ceil value of the input.
+    
+        Examples
+        --------
+        >>> ceil(pCube1.t)
+        >>> ceil(pCube1.tx)
+    """
 
     if len(items) != 1:
         raise Exception('floor() requires 1 input, given: %s' % items)
@@ -950,8 +1260,16 @@ def _ceil(items):
 
 
 def _dist(items):
-    ''' Creates a distanceBetween node to find distance between points or matrices
-    '''
+    """ 
+    dist(<input>, <input>)
+    
+        Creates a distanceBetween node to find distance between points or matrices.
+    
+        Examples
+        --------
+        >>> dist(pCube1.t, pCube2.t)
+        >>> dist(pCube1.wm, pCube2.wm)
+    """
 
     if len(items) != 2:
         raise Exception('clamp requires 2 inputs, given: %s' % items)
@@ -972,8 +1290,17 @@ def _dist(items):
 
 
 def _vectorMatrixProduct(items):
-    ''' Creates a vectorProduct node to do a vector matrix product
-    '''
+    """ 
+    vectorMatrixProduct(<input>, <input>)
+    
+        Creates a vectorProduct node to do a vector matrix product.
+    
+        Examples
+        --------
+        >>> pCube1.t * pCube2.wm
+        >>> vectorMatrixProduct(pCube1.t, pCube2.wm)
+    """
+
     if len(items) != 2:
         raise Exception('vectorMatrixProduct requires 2 inputs, given: %s' % items)
 
@@ -1001,8 +1328,16 @@ def _vectorMatrixProduct(items):
 
 
 def _nVectorMatrixProduct(items):
-    ''' Creates a vectorProduct node to do a normalized vector matrix product
-    '''
+    """ 
+    nVectorMatrixProduct(<input>, <input>)
+    
+        Creates a normalized vectorProduct node to do a vector matrix product.
+    
+        Examples
+        --------
+        >>> nVectorMatrixProduct(pCube1.t, pCube2.wm)
+    """
+
     if len(items) != 2:
         raise Exception('nVectorMatrixProduct requires 2 inputs, given: %s' % items)
 
@@ -1030,8 +1365,16 @@ def _nVectorMatrixProduct(items):
 
 
 def _pointMatrixProduct(items):
-    ''' Creates a vectorProduct node to do a point matrix product
-    '''
+    """ 
+    pointMatrixProduct(<input>, <input>)
+    
+        Creates a vectorProduct node to do a point matrix product.
+    
+        Examples
+        --------
+        >>> pointMatrixProduct(pCube1.t, pCube2.wm)
+    """
+
     if len(items) != 2:
         raise Exception('pointMatrixProduct requires 2 inputs, given: %s' % items)
 
@@ -1059,8 +1402,16 @@ def _pointMatrixProduct(items):
 
 
 def _matrixMultiply(items):
-    ''' Multiplies two matrices together
-    '''
+    """ 
+    matrixMultiply(<input>, <input>)
+    
+        Multiplies two matrices together.
+    
+        Examples
+        --------
+        >>> pCube1.wm * pCube2.wm
+        >>> matrixMultiply(pCube1.wm, pCube2.wm)
+    """
     if len(items) != 2:
         raise Exception('vectorMatrixProduct requires 2 inputs, given: %s' % items)
 
@@ -1079,8 +1430,16 @@ def _matrixMultiply(items):
 
 
 def _nPointMatrixProduct(items):
-    ''' Creates a vectorProduct node to do a normalized point matrix product
-    '''
+    """ 
+    nPointMatrixProduct(<input>, <input>)
+    
+        Creates a normalized vectorProduct node to do a point matrix product.
+    
+        Examples
+        --------
+        >>> nPointMatrixProduct(pCube1.t, pCube2.wm)
+    """
+
     if len(items) != 2:
         raise Exception('nPointMatrixProduct requires 2 inputs, given: %s' % items)
 
@@ -1108,46 +1467,72 @@ def _nPointMatrixProduct(items):
 
 
 def _vector(items):
-    ''' Creates a vector out of inputs
-    '''
+    """ 
+    vector(<input>, <input>, <input>)
+    
+        Creates a vector out of inputs.
+    
+        Examples
+        --------
+        >>> vector(pCube1.tx, pCube2.ty, pCube3.tz)
+    """
+
     if len(items) != 3:
         raise Exception('vector requires 3 inputs, given: %s' % items)
 
     node = vector(name='vector1', at='double')
-    for i, xyz in enumerate(['%s%s'%(node,x) for x in 'XYZ']):
-        
+    for i, xyz in enumerate(['%s%s' % (node, x) for x in 'XYZ']):
+
         # skip 'None'
         if not items[i] is None:
             connect(items[i], xyz)
-        
-        
-    #connect(items[0], '%sX' % node)
-    #connect(items[1], '%sY' % node)
-    #connect(items[2], '%sZ' % node)
+
+    # connect(items[0], '%sX' % node)
+    # connect(items[1], '%sY' % node)
+    # connect(items[2], '%sZ' % node)
 
     return node
 
 
 def _matrix(items):
-    ''' Constructs a matrix from a list of vectors
-    '''
+    """ 
+    matrix(<input>, <input>, <input>, <imput>)
+    
+        Constructs a matrix from a list of up to 4 vectors.
+    
+        Examples
+        --------
+        >>> matrix(pCube1.t, pCube2.t, pCube3.t)
+        >>> matrix(pCube1.t, pCube2.t, pCube3.t, pCube4.t)
+    """
+
     if len(items) > 4:
         raise Exception('matrix constructor accepts up to 4 inputs, given: %s' % items)
-    
+
     items = getPlugs(items, compound=False)
-    
+
     M = mc.createNode('fourByFourMatrix')
-    for i in xrange(len(items)):
-        for j in xrange(len(items[i])):
+    for i in range(len(items)):
+        for j in range(len(items[i])):
             if not items[i][j] is None:
-                plug = '%s.in%s%s'%(M, i, j)
+                plug = '%s.in%s%s' % (M, i, j)
                 connect(items[i][j], plug)
 
-    return '%s.output'%M
-
+    return '%s.output' % M
 
 
 def _abs(items):
+    """ 
+    abs(<input>)
+    
+        Outputs the absolute value of a float or vector.
+    
+        Examples
+        --------
+        >>> abs(pCube1.t)
+        >>> abs(pCube1.tx)
+    """
+
     items = getPlugs(items, compound=False)[0]
 
     if not len(items) in [1, 3]:
@@ -1214,6 +1599,10 @@ FUNCTIONS = {'abs': _abs,
 
 
 def evaluate_line(exp):
+    """
+    PyParsing core function which parses a string expression.
+    """
+
     # define the parser
     expression = Forward()
     var = Word(alphas)
@@ -1239,7 +1628,7 @@ def evaluate_line(exp):
     signop = oneOf('+ -')
     multop = oneOf('* / % //')
     plusop = oneOf('+ -')
-    expop  = Literal('**')
+    expop = Literal('**')
 
     # use parse actions to attach EvalXXX constructors to sub-expressions
     operand.setParseAction(EvalElement)
@@ -1270,7 +1659,29 @@ def evaluate_line(exp):
     return ret.eval()
 
 
+def usage(query=None, verbose=False):
+    """
+    Print usage.
+    """
+    if query in FUNCTIONS:
+        print(FUNCTIONS[query].__doc__)
+
+    else:
+
+        if verbose:
+            for f in sorted(FUNCTIONS):
+                if verbose:
+                    print(FUNCTIONS[f].__doc__)
+                    print
+        else:
+            cli = cmd.Cmd()
+            cli.columnize(sorted(FUNCTIONS.keys()), displaywidth=80)
+
+
 def eval(expression, variables=None):
+    """
+    Evaluates every line of a given expressions, and handles variable casting when prefixed with "$"
+    """
     if not isinstance(expression, (list, tuple)):
         expression = str(expression).splitlines()
 
