@@ -19,53 +19,102 @@ CONSTANTS = {'e': math.e,
 CONDITIONS = {'==': 0, '!=': 1, '>': 2, '>=': 3, '<': 4, '<=': 5}
 
 
-def nextFreePlug(node_att):
+#def nextFreePlug(node_att):
+    #""" 
+    #Returns the next valid plug index.
+    #"""
+
+    #try:
+        #split = node_att.split('.')
+        #att = split[-1]
+        #node = '.'.join(split[:-1])
+        #index = 0
+
+        #while True:
+            #plugged = mc.listConnections('%s.%s[%s]' % (node, att, index))
+            #if not plugged:
+                #break
+            #index += 1
+
+        #return '%s.%s[%s]' % (node, att, index)
+
+    #except:
+        #return node_att
+        
+def nextFreePlug(query):
     """ 
     Returns the next valid plug index.
     """
+    
+    # no need to go any further if not a node.attr
+    if not '.' in query:
+        return query
 
-    try:
-        split = node_att.split('.')
-        att = split[-1]
-        node = '.'.join(split[:-1])
-        index = 0
+    # find where the multi attr entry point is
+    split = query.split('.')
+    for i in range(2, len(split)+1):
+        start  = '.'.join(split[:i])
+        end    = '.'.join(split[i:])
+        search = None
+        try:
+            mc.listAttr('%s[0]'%start, m=True)
+            search = '{0}[%s].{1}'.format(start, end)
+            break
+        except:
+            pass
+        
+    # if we don't have a valid entry point, return query
+    if search is None:
+        return query
+        
 
-        while True:
-            plugged = mc.listConnections('%s.%s[%s]' % (node, att, index))
-            if not plugged:
-                break
-            index += 1
-
-        return '%s.%s[%s]' % (node, att, index)
-
-    except:
-        return node_att
-
-
-def listPlugs(node_att, next_free_plug=True):
-    # print 'listPlugs: %s'%node_att
-    if node_att and mc.objExists(node_att):
-        if next_free_plug:
-            node_att = nextFreePlug(node_att)
-        node = node_att.split('.')
-        node = '.'.join(node[:-1])
-        return ['%s.%s' % (node, x) for x in mc.listAttr(node_att)]
-
-    else:
-        return [node_att]  # to handle non plug items, like conditions "<>!="
+    # find the next free plug
+    index = 0
+    
+    while True:
+        if not mc.listConnections(search%index):
+            return search%index
+            
+        index += 1        
 
 
-def getPlugs(items, compound=True):
+
+#def listPlugs(node_att, next_free_plug=True):
+    ## print 'listPlugs: %s'%node_att
+    #if node_att and mc.objExists(node_att):
+        #if next_free_plug:
+            #node_att = nextFreePlug(node_att)
+        #node = node_att.split('.')
+        #node = '.'.join(node[:-1])
+        #return ['%s.%s' % (node, x) for x in mc.listAttr(node_att)]
+
+    #else:
+        #return [node_att]  # to handle non plug items, like conditions "<>!="
+
+
+def listPlugs(query):
+    # no need to go any further if not a node.attr
+    if not '.' in query:
+        return query
+        
+    query = nextFreePlug(query)
+    node = query.split('.')[0]
+    return ['%s.%s'%(node,x) for x in mc.listAttr(query)]
+
+
+
+    
+def getPlugs(query, compound=True):
     """
     Enumerates input plugs.
-    ex: compoud=False means that pCube1.t ---> pCube1.tx, pCube1.ty, pCube1.tz
+    ex: compoud=False means that pCube1.t becomes [pCube1.tx, pCube1.ty, pCube1.tz]
     """
-    if not isinstance(items, (list, tuple)):
-        items = [items]
+    if not isinstance(query, (list, tuple)):
+        query = [query]
 
     attrs = []
-    for i, obj in enumerate(items):
-        attrs.append(listPlugs(obj, next_free_plug=bool(i)))
+    for obj in query:
+        attrs.append(listPlugs(obj))
 
     counts = [len(x) for x in attrs]
     if counts:
@@ -81,8 +130,8 @@ def getPlugs(items, compound=True):
             if maxi == 0 and not compound:
                 return attrs
 
-            result = [[None] * maxi for _ in items]
-            for i in range(len(items)):
+            result = [[None] * maxi for _ in query]
+            for i in range(len(query)):
                 for j in range(maxi):
                     if counts[i] == 1:
                         result[i][j] = attrs[i][0]
@@ -90,7 +139,9 @@ def getPlugs(items, compound=True):
                         result[i][j] = attrs[i][min(counts[i], j + 1)]
 
             return result
-
+        
+        
+        
 
 def isMatrix(item):
     """ 
@@ -206,45 +257,53 @@ def multiplyDivide(op, items, ss=True, lock=True):
 
         # is this a mat * p
         else:
-            return _vectorMatrixProduct(items)
+            return _pointMatrixProduct(items)
 
 
-# TODO: Matrices?
 def plusMinusAverage(op, items, lock=True):
     """
     Handles plus, minus, average operations on floats and vectors.
     """
 
-    node = mc.createNode('plusMinusAverage', ss=True)
+    mat0 = isMatrix(items[0])
+    mat1 = isMatrix(items[1])
 
-    # plus
-    if op == '+':
-        mc.setAttr('%s.operation' % node, 1, lock=lock)
+    if not mat0 and not mat1:
 
-    # minus
-    elif op == '-':
-        mc.setAttr('%s.operation' % node, 2, lock=lock)
-
-    # average
-    elif op == 'avg':
-        mc.setAttr('%s.operation' % node, 3, lock=lock)
-
-    else:
-        raise Exception('unsupported operator: %s' % op)
-
-    # Force single output if both inputs are single numerics
-    counts = getPlugs(items, compound=False)
-    if all(len(x) == 1 for x in counts):
+        node = mc.createNode('plusMinusAverage', ss=True)
+    
+        # plus
+        if op == '+':
+            mc.setAttr('%s.operation' % node, 1, lock=lock)
+    
+        # minus
+        elif op == '-':
+            mc.setAttr('%s.operation' % node, 2, lock=lock)
+    
+        # average
+        elif op == 'avg':
+            mc.setAttr('%s.operation' % node, 3, lock=lock)
+    
+        else:
+            raise Exception('unsupported operator: %s' % op)
+    
+        # Force single output if both inputs are single numerics
+        counts = getPlugs(items, compound=False)
+        if all(len(x) == 1 for x in counts):
+            for i, obj in enumerate(items):
+                connect(obj, '%s.input1D[%s]' % (node, i))
+    
+            return '%s.output1D' % node
+    
+        # Connect
         for i, obj in enumerate(items):
-            connect(obj, '%s.input1D[%s]' % (node, i))
-
-        return '%s.output1D' % node
-
-    # Connect
-    for i, obj in enumerate(items):
-        connect(obj, '%s.input3D[%s]' % (node, i))
-
-    return '%s.output3D' % node
+            connect(obj, '%s.input3D[%s]' % (node, i))
+    
+        return '%s.output3D' % node
+    
+    else:
+        return _matrixSum(items)
+    
 
 
 def constant(value=0, ss=True, at='double', name='constant1'):
@@ -1401,31 +1460,119 @@ def _pointMatrixProduct(items):
     return '%s.output' % node
 
 
+
+def _matrixSum(items):
+    """ 
+    matrixSum(<input>, <input>, ...)
+    
+        Adds matrices together.
+    
+        Examples
+        --------
+        >>> pCube1.wm + pCube2.wm
+        >>> matrixSum(pCube1.wm, pCube2.wm, pCube3.wm, ...)
+    """
+    if len(items) <= 1:
+        raise Exception('matrixSum requires 2 or more inputs, given: %s' % items)
+
+    for item in items:
+        if not isMatrix(item):
+            raise Exception('matrixSum requires matrices, given: %s' % items)
+
+    node = mc.createNode('addMatrix', ss=True)
+
+    for item in items:
+        connect(item, '%s.matrixIn' % node)
+        
+    return '%s.matrixSum' % node
+
+
+def _matrixWeightedSum(items):
+    """ 
+    matrixWeightedSum(<input>, <input>, ...)
+    
+        Adds matrices together with optional weight values.
+        (default = averaged)
+    
+        Examples
+        --------
+        >>> matrixWeightedSum(pCube1.wm, pCube2.wm, pCube3.wm, ...)
+        >>> matrixWeightedSum(pCube1.wm, pCube2.wm, pCube1.weight, pCube2.weight)
+        
+    """
+    if len(items) <= 1:
+        raise Exception('matrixSum requires 2 or more inputs, given: %s' % items)
+
+
+    # parse inputs between matrices and weights
+    matrices = []
+    weights  = []
+    
+    for item in items:
+        
+        # is this a matrix?
+        if isMatrix(item):
+            matrices.append(item)
+
+        # assume this is a weight
+        else:
+            weights.append(item)
+    
+    
+    # test weight inputs
+    # if 0, then weights = 1/matrix count
+    # if 1 and we have two matrices, then weight is 0-1 from mat1 to mat2
+    # if n weight for n matrices, this is the normal use case
+    # error out otherwise
+    weight_count = len(weights)
+    matrix_count = len(matrices)
+    
+    if weight_count == 0:
+        w = 1./matrix_count
+        for _ in matrices:
+            weights.append(constant(w))
+            
+    elif matrix_count == 2 and weight_count == 1:
+        weights.append(weights[0])
+        weights[0] = _reverse([weights[-1]])
+        
+    elif matrix_count > 1 and weight_count != matrix_count:
+        raise Exception('matrixWeightedSum invalid inputs, given: %s' % items)
+        
+
+    node = mc.createNode('wtAddMatrix', ss=True)
+
+    for i in range(matrix_count):
+        connect(matrices[i], '%s.wtMatrix.matrixIn' % (node))
+        connect(weights[i],  '%s.wtMatrix.weightIn' % (node))
+        
+    return '%s.matrixSum' % node
+
+
+
 def _matrixMultiply(items):
     """ 
-    matrixMultiply(<input>, <input>)
+    matrixMultiply(<input>, <input>, ...)
     
-        Multiplies two matrices together.
+        Multiplies 2 or more matrices together.
     
         Examples
         --------
         >>> pCube1.wm * pCube2.wm
-        >>> matrixMultiply(pCube1.wm, pCube2.wm)
+        >>> matrixMultiply(pCube1.wm, pCube2.wm, pCube3.wm)
     """
-    if len(items) != 2:
-        raise Exception('vectorMatrixProduct requires 2 inputs, given: %s' % items)
+    if len(items) <= 1:
+        raise Exception('matrixMultiply requires 2 or more inputs, given: %s' % items)
+
+    for item in items:
+        if not isMatrix(item):
+            raise Exception('matrixMultiply requires matrices, given: %s' % items)
 
     node = mc.createNode('multMatrix', ss=True)
 
-    matrix0 = isMatrix(items[0])
-    matrix1 = isMatrix(items[1])
-
-    if matrix0 == matrix1 == False:
-        raise Exception('matrixMultiply requires matrices, given: %s' % items)
-
-    connect(items[0], '%s.matrixIn' % node)
-    connect(items[1], '%s.matrixIn' % node)
-
+    for item in items:
+        connect(item, '%s.matrixIn' % node)
+        
     return '%s.matrixSum' % node
 
 
@@ -1576,6 +1723,8 @@ FUNCTIONS = {'abs': _abs,
              'mag': _magnitude,
              'max': _max,
              'matrix': _matrix,
+             'matrixSum': _matrixSum,
+             'matrixWeightedSum': _matrixWeightedSum,
              'matrixMultiply': _matrixMultiply,
              'min': _min,
              'noise': _noise,
