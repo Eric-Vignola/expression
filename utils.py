@@ -75,7 +75,7 @@ def nextFreePlug(query):
         if not mc.listConnections(search%index):
             return search%index
             
-        index += 1        
+        index += 1              
 
 
 
@@ -96,14 +96,16 @@ def listPlugs(query):
     # no need to go any further if not a node.attr
     if not '.' in query:
         return query
-        
+    
     query = nextFreePlug(query)
     node = query.split('.')[0]
+    
     return ['%s.%s'%(node,x) for x in mc.listAttr(query)]
 
 
 
     
+   
 def getPlugs(query, compound=True):
     """
     Enumerates input plugs.
@@ -111,7 +113,7 @@ def getPlugs(query, compound=True):
     """
     if not isinstance(query, (list, tuple)):
         query = [query]
-
+        
     attrs = []
     for obj in query:
         attrs.append(listPlugs(obj))
@@ -121,7 +123,15 @@ def getPlugs(query, compound=True):
         maxi = max(counts) - 1
 
         # If all counts the same
-        if [counts[0]] * len(counts) == counts and compound:
+        # !!! HACK !!! #
+        # If one of the inputs is a choice node, we force compound mode
+        choice_test = False
+        try:
+            choice_test = any([mc.nodeType(q) == 'choice' for q in query])
+        except:
+            pass
+
+        if len(query) > 1 and (choice_test or ([counts[0]] * len(counts) == counts and compound)):
             return [[x[0]] for x in attrs]
 
         else:
@@ -139,9 +149,20 @@ def getPlugs(query, compound=True):
                         result[i][j] = attrs[i][min(counts[i], j + 1)]
 
             return result
+
         
         
         
+def isInt(item):
+    """ 
+    Check if plug is a type int, bool or enum (all valid ints).
+    """
+    if mc.getAttr(item, type=True) in ['bool', 'int', 'enum']:
+        return True
+
+    return False
+
+
 
 def isMatrix(item):
     """ 
@@ -162,9 +183,11 @@ def connect(src, dst):
     # - comp to comp  xyz --> xyz 
     #                 matrix ---> matrix
     # print 'CONNECTING: %s ---> %s'%(src,dst)
+    
     src, dst = getPlugs([src, dst])
+
     for i in range(len(src)):
-        # print 'connecting: %s ---> %s'%(src[i],dst[i])
+        #print 'connecting: %s ---> %s'%(src[i],dst[i])
         mc.connectAttr(src[i], dst[i], f=True)
 
 
@@ -1188,10 +1211,10 @@ def _int(items):
     if len(items) != 1:
         raise Exception('int() requires 1 input, given: %s' % items)
 
-    if len(getPlugs(items)) > 1:
-        node = constant(name='int1', at='long')
-    else:
+    if len(getPlugs(items[0])[0]) > 1:
         node = vector(name='int1', at='long')
+    else:
+        node = constant(name='int1', at='long')
 
     f = constant(0.4999999)  # corrent Maya's inappropriate int convention
     zero = constant(0)
@@ -1613,6 +1636,37 @@ def _nPointMatrixProduct(items):
     return '%s.output' % node
 
 
+def _choice(items):
+    """ 
+    choice(<selector>, <input>, <input>, ...)
+    
+        Creates a choice node out of inputs.
+        If selector is None, nothing will be set.
+    
+        Examples
+        --------
+        >>> choice(pCube1.someEnum, pCube2.wm, pCube3.wm)
+        >>> choice(None, pCube2.wm, pCube3.wm) # leaves selector unplugged.
+    """
+    
+    if len(items) < 2:
+        raise Exception('choice requires minimum 2 inputs, given: %s' % items)    
+    
+    # create choice node
+    node = mc.createNode('choice', ss=True)
+    
+    # plug selector
+    if not items[0] is None:
+        connect(items[0], '%s.selector'%node)
+    
+    # plug inputs
+    for item in items[1:]:
+        connect(item, '%s.input'%node)
+        
+    return '%s.output'%node
+
+    
+
 def _vector(items):
     """ 
     vector(<input>, <input>, <input>)
@@ -1707,6 +1761,7 @@ FUNCTIONS = {'abs': _abs,
              'avg': _average,
              'ceil': _ceil,
              'clamp': _clamp,
+             'choice': _choice,
              'cos': _cos,
              'cosd': _cosd,
              'cross': _cross,
@@ -1884,3 +1939,4 @@ def eval(expression, variables=None):
 
 # example usage
 # eval('pCube1.t = vector(time1.o, sind(time1.o/360 * 90) * 5, 0)')
+# eval('pSphere1.t = choice(int(pCube4.tx), pCube1.t, pCube2.t, pCube3.t)')
