@@ -5,8 +5,8 @@ import re
 
 import maya.cmds as mc
 
-from .pyparsing import Forward, Word, Combine, Literal, Optional, Group, ParseResults
-from .pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
+from pyparsing import Forward, Word, Combine, Literal, Optional, Group, ParseResults
+from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
 
 # Define some known constants
 CONSTANTS = {'e': math.e,
@@ -2343,6 +2343,15 @@ def eval(expression, variables=None):
                         line = line.replace(stored, '')
                         stored = stored[1:-1].strip()
                         
+                        
+            # else are we giving a list of nodes to connect directly?
+            else:
+                piped = re.findall('^(.+?)=', line) # watch up to first =
+                if piped:
+                    # make sure only alphanum with periods and commas
+                    if bool(re.match("^[A-Za-z0-9_:|,. -]*$", piped[0])):
+                        list_connect = [x.strip() for x in piped[0].split(',')]
+                        line = line.replace('%s='%piped[0], '')
 
             # process known variables and convert any numerics to str
             # and also expand lists
@@ -2361,7 +2370,7 @@ def eval(expression, variables=None):
 
 
             # --- evaluate the line --- #
-            print ('eval: %s'%line)
+            #print ('eval: %s'%line)
             result = evaluate_line(line)
 
             # store the result
