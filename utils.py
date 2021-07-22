@@ -19,93 +19,53 @@ CONSTANTS = {'e': math.e,
 CONDITIONS = {'==': 0, '!=': 1, '>': 2, '>=': 3, '<': 4, '<=': 5}
 
 
-#def nextFreePlug(node_att):
-    #""" 
-    #Returns the next valid plug index.
-    #"""
-
-    #try:
-        #split = node_att.split('.')
-        #att = split[-1]
-        #node = '.'.join(split[:-1])
-        #index = 0
-
-        #while True:
-            #plugged = mc.listConnections('%s.%s[%s]' % (node, att, index))
-            #if not plugged:
-                #break
-            #index += 1
-
-        #return '%s.%s[%s]' % (node, att, index)
-
-    #except:
-        #return node_att
-        
 def nextFreePlug(query):
     """ 
     Returns the next valid plug index.
     """
-    
+
     # no need to go any further if not a node.attr
     if not '.' in query:
         return query
 
     # find where the multi attr entry point is
     split = query.split('.')
-    for i in range(2, len(split)+1):
-        start  = '.'.join(split[:i])
-        end    = '.'.join(split[i:])
+    for i in range(2, len(split) + 1):
+        start = '.'.join(split[:i])
+        end = '.'.join(split[i:])
         search = None
         try:
-            mc.listAttr('%s[0]'%start, m=True)
+            mc.listAttr('%s[0]' % start, m=True)
             search = '{0}[%s].{1}'.format(start, end)
             break
         except:
             pass
-        
+
     # if we don't have a valid entry point, return query
     if search is None:
         return query
-        
 
     # find the next free plug
     index = 0
-    
+
     while True:
-        if not mc.listConnections(search%index):
-            return search%index
-            
-        index += 1              
+        if not mc.listConnections(search % index, s=True, d=False):
+            return search % index
 
-
-
-#def listPlugs(node_att, next_free_plug=True):
-    ## print 'listPlugs: %s'%node_att
-    #if node_att and mc.objExists(node_att):
-        #if next_free_plug:
-            #node_att = nextFreePlug(node_att)
-        #node = node_att.split('.')
-        #node = '.'.join(node[:-1])
-        #return ['%s.%s' % (node, x) for x in mc.listAttr(node_att)]
-
-    #else:
-        #return [node_att]  # to handle non plug items, like conditions "<>!="
+        index += 1
 
 
 def listPlugs(query):
     # no need to go any further if not a node.attr
     if not '.' in query:
         return query
-    
+
     query = nextFreePlug(query)
     node = query.split('.')[0]
-    
-    return ['%s.%s'%(node,x) for x in mc.listAttr(query)]
+
+    return ['%s.%s' % (node, x) for x in mc.listAttr(query)]
 
 
-
-    
-   
 def getPlugs(query, compound=True):
     """
     Enumerates input plugs.
@@ -113,7 +73,7 @@ def getPlugs(query, compound=True):
     """
     if not isinstance(query, (list, tuple)):
         query = [query]
-        
+
     attrs = []
     for obj in query:
         attrs.append(listPlugs(obj))
@@ -150,9 +110,7 @@ def getPlugs(query, compound=True):
 
             return result
 
-        
-        
-        
+
 def isInt(item):
     """ 
     Check if plug is a type int, bool or enum (all valid ints).
@@ -163,12 +121,21 @@ def isInt(item):
     return False
 
 
-
 def isMatrix(item):
     """ 
     Check if plug is a type matrix or not.
     """
     if mc.getAttr(item, type=True) == 'matrix':
+        return True
+
+    return False
+
+
+def isQuaternion(item):
+    """ 
+    Check if plug is a type quaternion or not.
+    """
+    if mc.getAttr(item, type=True) in ['double4', 'TdataCompound']:
         return True
 
     return False
@@ -183,11 +150,11 @@ def connect(src, dst):
     # - comp to comp  xyz --> xyz 
     #                 matrix ---> matrix
     # print 'CONNECTING: %s ---> %s'%(src,dst)
-    
+
     src, dst = getPlugs([src, dst])
 
     for i in range(len(src)):
-        #print 'connecting: %s ---> %s'%(src[i],dst[i])
+        # print 'connecting: %s ---> %s'%(src[i],dst[i])
         mc.connectAttr(src[i], dst[i], f=True)
 
 
@@ -294,39 +261,38 @@ def plusMinusAverage(op, items, lock=True):
     if not mat0 and not mat1:
 
         node = mc.createNode('plusMinusAverage', ss=True)
-    
+
         # plus
         if op == '+':
             mc.setAttr('%s.operation' % node, 1, lock=lock)
-    
+
         # minus
         elif op == '-':
             mc.setAttr('%s.operation' % node, 2, lock=lock)
-    
+
         # average
         elif op == 'avg':
             mc.setAttr('%s.operation' % node, 3, lock=lock)
-    
+
         else:
             raise Exception('unsupported operator: %s' % op)
-    
+
         # Force single output if both inputs are single numerics
         counts = getPlugs(items, compound=False)
         if all(len(x) == 1 for x in counts):
             for i, obj in enumerate(items):
                 connect(obj, '%s.input1D[%s]' % (node, i))
-    
+
             return '%s.output1D' % node
-    
+
         # Connect
         for i, obj in enumerate(items):
             connect(obj, '%s.input3D[%s]' % (node, i))
-    
+
         return '%s.output3D' % node
-    
+
     else:
         return _matrixSum(items)
-    
 
 
 def constant(value=0, ss=True, at='double', name='constant1'):
@@ -443,8 +409,7 @@ class EvalComparisonOp(object):
             dst = self.value[0].eval()
 
             connect(src, dst)
-            # return True
-        # return False
+
         return src
 
 
@@ -494,7 +459,7 @@ class EvalElement(object):
                     return self.value
 
 
-# ------------------------------- FUNCTIONS ------------------------------- #
+# ------------------------------- TRIGONOMETRY ------------------------------- #
 
 def _degrees(items):
     """
@@ -826,6 +791,9 @@ def _atan(items):
     # float atan(float x) {
     #    return _atan2(x, float(1));
     # }
+
+
+# ------------------------------- UTILITIES ------------------------------- #
 
 
 # TODO: add input as a time offset
@@ -1371,6 +1339,513 @@ def _dist(items):
     return '%s.distance' % node
 
 
+def _abs(items):
+    """ 
+    abs(<input>)
+    
+        Outputs the absolute value of a float or vector.
+    
+        Examples
+        --------
+        >>> abs(pCube1.t)
+        >>> abs(pCube1.tx)
+    """
+
+    items = getPlugs(items, compound=False)[0]
+
+    if not len(items) in [1, 3]:
+        raise Exception('abs works on 1 or 3 inputs, given: %s' % items)
+
+    result = []
+    zero = constant(0)
+    for i in items:
+        neg = eval('-1*%s' % i)
+        test = _condition([i, '<', zero, neg, i])
+        result.append(test)
+
+    if len(result) > 1:
+        return _vector(result)
+
+    else:
+        return result[0]
+
+
+def _choice(items):
+    """ 
+    choice(<selector>, <input>, <input>, ...)
+    
+        Creates a choice node out of inputs.
+        If selector is None, nothing will be set.
+    
+        Examples
+        --------
+        >>> choice(pCube1.someEnum, pCube2.wm, pCube3.wm)
+        >>> choice(None, pCube2.wm, pCube3.wm) # leaves selector unplugged.
+    """
+
+    if len(items) < 2:
+        raise Exception('choice requires minimum 2 inputs, given: %s' % items)
+
+        # create choice node
+    node = mc.createNode('choice', ss=True)
+
+    # plug selector
+    if not items[0] is None:
+        connect(items[0], '%s.selector' % node)
+
+    # plug inputs
+    for item in items[1:]:
+        connect(item, '%s.input' % node)
+
+    return '%s.output' % node
+
+
+def _vector(items):
+    """ 
+    vector(<input>, <input>, <input>)
+    
+        Creates a vector out of inputs.
+    
+        Examples
+        --------
+        >>> vector(pCube1.tx, pCube2.ty, pCube3.tz)
+    """
+
+    if len(items) != 3:
+        raise Exception('vector requires 3 inputs, given: %s' % items)
+
+    node = vector(name='vector1', at='double')
+    for i, xyz in enumerate(['%s%s' % (node, x) for x in 'XYZ']):
+
+        # skip 'None'
+        if not items[i] is None:
+            connect(items[i], xyz)
+
+    # connect(items[0], '%sX' % node)
+    # connect(items[1], '%sY' % node)
+    # connect(items[2], '%sZ' % node)
+
+    return node
+
+
+# ------------------------------- QUATERNIONS ------------------------------- #
+
+def _quaternion_processor(items, quat_node, sequential=False, output_attr='outputQuat'):
+    """ 
+    Quaternion processor utility used by most quaternion functions.
+    """
+    
+    # make sure given items are lists, tuples or sets
+    if not isinstance(items, (list, tuple, set)):
+        items = [items]
+        
+    if not sequential:
+        if len(items) != 1:
+            raise Exception('%s requires 1 input, given: %s' % (quat_node, items))
+    else:
+        if len(items) < 2:
+            raise Exception('%s requires multiple inputs, given: %s' % (quat_node, items))
+
+    # Test inputs for quaternions, if matrix given
+    # do a conversion for convenience.
+    for i, item in enumerate(items):
+        if isMatrix(item):
+            items[i] = _matrixToQuaternion([item])
+
+        elif not isQuaternion(item):
+            raise Exception('%s requires quaternions, given: %s' % (quat_node, items))
+
+    node = mc.createNode(quat_node, ss=True)
+    if sequential:
+        connect(items[0], '%s.input1Quat' % node)
+        connect(items[1], '%s.input2Quat' % node)
+
+        for item in items[2:]:
+            node_ = mc.createNode(quat_node, ss=True)
+            connect('%s.outputQuat' % node, '%s.input1Quat' % node_)
+            connect(item, '%s.input2Quat' % node_)
+            node = node_
+
+    else:
+        connect(items[0], '%s.inputQuat' % node)
+
+    return '%s.%s' % (node, output_attr)
+
+
+def _quaternionSum(items):
+    """ 
+    quaternionSum(<input>, <input>, <input>, ...)
+    
+        Returns the sum of added quaternions.
+    
+        Examples
+        --------
+        >>> quaternionSum(pCube1.rq, pCube1.rq)
+    """
+    return _quaternion_processor(items, 'quatAdd', sequential=True)
+
+
+def _quaternionMultiply(items):
+    """ 
+    quaternionMultiply(<input>, <input>, <input>, ...)
+    
+        Returns the product of multiplied quaternions.
+    
+        Examples
+        --------
+        >>> quaternionMultiply(pCube1.rq, pCube2.rq)
+    """
+    return _quaternion_processor(items, 'quatProd', sequential=True)
+
+
+def _quaternionSub(items):
+    """ 
+    quaternionSub(<input>, <input>, <input>, ...)
+    
+        Returns the sum of subtracted quaternions.
+    
+        Examples
+        --------
+        >>> quaternionSub(pCube1.rq, pCube1.rq)
+    """
+    return _quaternion_processor(items, 'quatSub', sequential=True)
+
+
+def _quaternionNegate(items):
+    """ 
+    quaternionNegate(<input>)
+    
+        Negates a quaternion.
+    
+        Examples
+        --------
+        >>> quaternionNegate(pCube1.wm)
+    """
+    return _quaternion_processor(items, 'quatNegate')
+
+
+def _quaternionToEuler(items):
+    """ 
+    quaternionToEuler(<input>)
+    
+        Turns a quaternion into a euler angle.
+    
+        Examples
+        --------
+        >>> quaternionToEuler(pCube1.wm)
+    """
+    return _quaternion_processor(items, 'quatToEuler', output_attr='outputRotate')
+
+
+def _eulerToQuaternion(items):
+    """ 
+    eulerToQuaternion(<input>)
+    
+        Turns a euler angle into a guaternion.
+    
+        Examples
+        --------
+        >>> eulerToQuaternion(pCube1.r)
+    """
+    result = _quaternion_processor(items, 'eulerToQuat')
+    if mc.attributeQuery('rotateOrder', items[0], exists=True):
+        mc.connectAttr('%s.ro' % items[0], '%s.inputRotateOrder' % result.split('.')[0])
+
+
+def _quaternionNormalize(items):
+    """ 
+    quaternionNormalize(<input>)
+    
+        Normalizes a quaternion.
+    
+        Examples
+        --------
+        >>> quaternionNormalize(pCube1.wm)
+    """
+    return _quaternion_processor(items, 'quatNormalize')
+
+
+def _quaternionInvert(items):
+    """ 
+    quaternionInvert(<input>)
+    
+        Inverts a quaternion.
+    
+        Examples
+        --------
+        >>> quaternionInvert(pCube1.wm)
+    """
+    return _quaternion_processor(items, 'quatInvert')
+
+
+def _quaternionConjugate(items):
+    """ 
+    quaternionConjugate(<input>)
+    
+        Conjugates a quaternion.
+    
+        Examples
+        --------
+        >>> quaternionConjugate(pCube1.wm)
+    """
+    return _quaternion_processor(items, 'quatConjugate')
+
+
+def _quaternionSlerp(items):
+    """ 
+    quaternionSlerp(<input>, <input>, ...)
+    
+        Slerps between two quaternions with optional weight values.
+        (default = 0.5)
+    
+        Examples
+        --------
+        >>> quaternionSlerp(pCube1.wm, pCube2.wm)
+        >>> quaternionSlerp(pCube1.wm, pCube2.wm, pCube1.weight)
+        
+    """
+    if len(items) <= 1:
+        raise Exception('quaternionSlerp requires 2 or more inputs, given: %s' % items)
+
+    # parse inputs between matrices and weights
+    quats = []
+    weights = []
+
+    for item in items:
+
+        # is this a matrix?
+        if isMatrix(item):
+            quats.append(_matrixToQuaternion([item]))
+
+        elif isQuaternion(item):
+            quats.append(item)
+
+        # assume this is a weight
+        else:
+            weights.append(item)
+
+    node = mc.createNode('quatSlerp', ss=True)
+
+    connect(quats[0], '%s.input1Quat' % (node))
+    connect(quats[1], '%s.input2Quat' % (node))
+
+    # if no weights provided, set T to 0.5
+    if not weights:
+        # weights.append(constant(0.5))
+        # connect(weights[0], '%s.inputT'% (node))
+        mc.setAttr('%s.inputT' % (node), 0.5)
+        
+    else:
+        connect(weights[0], '%s.inputT'% (node))
+
+    return '%s.outputQuat' % node
+
+
+# ------------------------------- MATRICES ------------------------------- #
+
+def _matrix_processor(items, matrix_node, output_attr='outputMatrix'):
+    """ 
+    Matrix processor utility.
+    """
+
+    # make sure given items are lists, tuples or sets
+    if not isinstance(items, (list, tuple, set)):
+        items = [items]
+
+    # test input count
+    if len(items) != 1:
+        raise Exception('%s requires 1 input, given: %s' % (matrix_node, items))
+
+    # make sure items are matrices
+    for item in items:
+        if not isMatrix(item):
+            raise Exception('%s requires matrices, given: %s' % (matrix_node, items))
+
+    # process item
+    node = mc.createNode(matrix_node, ss=True)
+    connect(items[0], '%s.inputMatrix' % node)
+
+    return '%s.%s' % (node, output_attr)
+
+
+def _inverseMatrix(items):
+    """ 
+    inverseMatrix(<input>)
+    
+        Returns the inverse matrix.
+    
+        Examples
+        --------
+        >>> inverseMatrix(pCube1.wm)
+    """
+    return _matrix_processor(items, 'inverseMatrix')
+
+
+def _transposeMatrix(items):
+    """ 
+    transposeMatrix(<input>)
+    
+        Returns the transposed matrix.
+    
+        Examples
+        --------
+        >>> transposeMatrix(pCube1.wm)
+    """
+    return _matrix_processor(items, 'transposeMatrix')
+
+
+def _matrixToQuaternion(items):
+    """ 
+    matrixToQuaternion(<input>)
+    
+        Converts a matrix into a quaternion.
+    
+        Examples
+        --------
+        >>> matrixToQuaternion(pCube1.wm)
+    """
+    return _matrix_processor(items, 'decomposeMatrix', output_attr='outputQuat')
+
+
+def _matrix(items):
+    """ 
+    matrix(<input>, <input>, <input>, <imput>)
+    
+        Constructs a matrix from a list of up to 4 vectors.
+    
+        Examples
+        --------
+        >>> matrix(pCube1.t, pCube2.t, pCube3.t)
+        >>> matrix(pCube1.t, pCube2.t, pCube3.t, pCube4.t)
+    """
+
+    if len(items) > 4:
+        raise Exception('matrix constructor accepts up to 4 inputs, given: %s' % items)
+
+    items = getPlugs(items, compound=False)
+
+    M = mc.createNode('fourByFourMatrix')
+    for i in range(len(items)):
+        for j in range(len(items[i])):
+            if not items[i][j] is None:
+                plug = '%s.in%s%s' % (M, i, j)
+                connect(items[i][j], plug)
+
+    return '%s.output' % M
+
+
+def _matrixMultiply(items):
+    """ 
+    matrixMultiply(<input>, <input>, ...)
+    
+        Multiplies 2 or more matrices together.
+    
+        Examples
+        --------
+        >>> pCube1.wm * pCube2.wm
+        >>> matrixMultiply(pCube1.wm, pCube2.wm, pCube3.wm)
+    """
+    if len(items) <= 1:
+        raise Exception('matrixMultiply requires 2 or more inputs, given: %s' % items)
+
+    for item in items:
+        if not isMatrix(item):
+            raise Exception('matrixMultiply requires matrices, given: %s' % items)
+
+    node = mc.createNode('multMatrix', ss=True)
+
+    for item in items:
+        connect(item, '%s.matrixIn' % node)
+
+    return '%s.matrixSum' % node
+
+
+def _matrixSum(items):
+    """ 
+    matrixSum(<input>, <input>, ...)
+    
+        Adds matrices together.
+    
+        Examples
+        --------
+        >>> pCube1.wm + pCube2.wm
+        >>> matrixSum(pCube1.wm, pCube2.wm, pCube3.wm, ...)
+    """
+    if len(items) <= 1:
+        raise Exception('matrixSum requires 2 or more inputs, given: %s' % items)
+
+    for item in items:
+        if not isMatrix(item):
+            raise Exception('matrixSum requires matrices, given: %s' % items)
+
+    node = mc.createNode('addMatrix', ss=True)
+
+    for item in items:
+        connect(item, '%s.matrixIn' % node)
+
+    return '%s.matrixSum' % node
+
+
+def _matrixWeightedSum(items):
+    """ 
+    matrixWeightedSum(<input>, <input>, ...)
+    
+        Adds matrices together with optional weight values.
+        (default = averaged)
+    
+        Examples
+        --------
+        >>> matrixWeightedSum(pCube1.wm, pCube2.wm, pCube3.wm, ...)
+        >>> matrixWeightedSum(pCube1.wm, pCube2.wm, pCube1.weight, pCube2.weight)
+        
+    """
+    if len(items) <= 1:
+        raise Exception('matrixSum requires 2 or more inputs, given: %s' % items)
+
+    # parse inputs between matrices and weights
+    matrices = []
+    weights = []
+
+    for item in items:
+
+        # is this a matrix?
+        if isMatrix(item):
+            matrices.append(item)
+
+        # assume this is a weight
+        else:
+            weights.append(item)
+
+    # test weight inputs
+    # if 0, then weights = 1/matrix count
+    # if 1 and we have two matrices, then weight is 0-1 from mat1 to mat2
+    # if n weight for n matrices, this is the normal use case
+    # error out otherwise
+    weight_count = len(weights)
+    matrix_count = len(matrices)
+
+    if weight_count == 0:
+        w = 1. / matrix_count
+        for _ in matrices:
+            weights.append(constant(w))
+
+    elif matrix_count == 2 and weight_count == 1:
+        weights.append(weights[0])
+        weights[0] = _reverse([weights[-1]])
+
+    elif matrix_count > 1 and weight_count != matrix_count:
+        raise Exception('matrixWeightedSum invalid inputs, given: %s' % items)
+
+    node = mc.createNode('wtAddMatrix', ss=True)
+
+    for i in range(matrix_count):
+        connect(matrices[i], '%s.wtMatrix.matrixIn' % (node))
+        connect(weights[i], '%s.wtMatrix.weightIn' % (node))
+
+    return '%s.matrixSum' % node
+
+
+
 def _vectorMatrixProduct(items):
     """ 
     vectorMatrixProduct(<input>, <input>)
@@ -1483,7 +1958,6 @@ def _pointMatrixProduct(items):
     return '%s.output' % node
 
 
-
 def _matrixSum(items):
     """ 
     matrixSum(<input>, <input>, ...)
@@ -1506,7 +1980,7 @@ def _matrixSum(items):
 
     for item in items:
         connect(item, '%s.matrixIn' % node)
-        
+
     return '%s.matrixSum' % node
 
 
@@ -1526,13 +2000,12 @@ def _matrixWeightedSum(items):
     if len(items) <= 1:
         raise Exception('matrixSum requires 2 or more inputs, given: %s' % items)
 
-
     # parse inputs between matrices and weights
     matrices = []
-    weights  = []
-    
+    weights = []
+
     for item in items:
-        
+
         # is this a matrix?
         if isMatrix(item):
             matrices.append(item)
@@ -1540,8 +2013,7 @@ def _matrixWeightedSum(items):
         # assume this is a weight
         else:
             weights.append(item)
-    
-    
+
     # test weight inputs
     # if 0, then weights = 1/matrix count
     # if 1 and we have two matrices, then weight is 0-1 from mat1 to mat2
@@ -1549,28 +2021,26 @@ def _matrixWeightedSum(items):
     # error out otherwise
     weight_count = len(weights)
     matrix_count = len(matrices)
-    
+
     if weight_count == 0:
-        w = 1./matrix_count
+        w = 1. / matrix_count
         for _ in matrices:
             weights.append(constant(w))
-            
+
     elif matrix_count == 2 and weight_count == 1:
         weights.append(weights[0])
         weights[0] = _reverse([weights[-1]])
-        
+
     elif matrix_count > 1 and weight_count != matrix_count:
         raise Exception('matrixWeightedSum invalid inputs, given: %s' % items)
-        
 
     node = mc.createNode('wtAddMatrix', ss=True)
 
     for i in range(matrix_count):
         connect(matrices[i], '%s.wtMatrix.matrixIn' % (node))
-        connect(weights[i],  '%s.wtMatrix.weightIn' % (node))
-        
-    return '%s.matrixSum' % node
+        connect(weights[i], '%s.wtMatrix.weightIn' % (node))
 
+    return '%s.matrixSum' % node
 
 
 def _matrixMultiply(items):
@@ -1595,7 +2065,7 @@ def _matrixMultiply(items):
 
     for item in items:
         connect(item, '%s.matrixIn' % node)
-        
+
     return '%s.matrixSum' % node
 
 
@@ -1636,65 +2106,6 @@ def _nPointMatrixProduct(items):
     return '%s.output' % node
 
 
-def _choice(items):
-    """ 
-    choice(<selector>, <input>, <input>, ...)
-    
-        Creates a choice node out of inputs.
-        If selector is None, nothing will be set.
-    
-        Examples
-        --------
-        >>> choice(pCube1.someEnum, pCube2.wm, pCube3.wm)
-        >>> choice(None, pCube2.wm, pCube3.wm) # leaves selector unplugged.
-    """
-    
-    if len(items) < 2:
-        raise Exception('choice requires minimum 2 inputs, given: %s' % items)    
-    
-    # create choice node
-    node = mc.createNode('choice', ss=True)
-    
-    # plug selector
-    if not items[0] is None:
-        connect(items[0], '%s.selector'%node)
-    
-    # plug inputs
-    for item in items[1:]:
-        connect(item, '%s.input'%node)
-        
-    return '%s.output'%node
-
-    
-
-def _vector(items):
-    """ 
-    vector(<input>, <input>, <input>)
-    
-        Creates a vector out of inputs.
-    
-        Examples
-        --------
-        >>> vector(pCube1.tx, pCube2.ty, pCube3.tz)
-    """
-
-    if len(items) != 3:
-        raise Exception('vector requires 3 inputs, given: %s' % items)
-
-    node = vector(name='vector1', at='double')
-    for i, xyz in enumerate(['%s%s' % (node, x) for x in 'XYZ']):
-
-        # skip 'None'
-        if not items[i] is None:
-            connect(items[i], xyz)
-
-    # connect(items[0], '%sX' % node)
-    # connect(items[1], '%sY' % node)
-    # connect(items[2], '%sZ' % node)
-
-    return node
-
-
 def _matrix(items):
     """ 
     matrix(<input>, <input>, <input>, <imput>)
@@ -1722,35 +2133,18 @@ def _matrix(items):
     return '%s.output' % M
 
 
-def _abs(items):
-    """ 
-    abs(<input>)
-    
-        Outputs the absolute value of a float or vector.
-    
-        Examples
-        --------
-        >>> abs(pCube1.t)
-        >>> abs(pCube1.tx)
-    """
+# FUNCTIONS = {}
+# for x in dir(trigonometry):
+# if not x.startswith('_'):
+# FUNCTIONS[x] = getattr(trigonometry, x)
 
-    items = getPlugs(items, compound=False)[0]
+# from types import FunctionType
 
-    if not len(items) in [1, 3]:
-        raise Exception('abs works on 1 or 3 inputs, given: %s' % items)
-
-    result = []
-    zero = constant(0)
-    for i in items:
-        neg = eval('-1*%s' % i)
-        test = _condition([i, '<', zero, neg, i])
-        result.append(test)
-
-    if len(result) > 1:
-        return _vector(result)
-
-    else:
-        return result[0]
+# FUNCTIONS = {}
+# for x in locals().copy():
+# if isinstance(locals()[x], FunctionType):
+# if not x.startswith('_'):
+# FUNCTIONS[x] = locals()[x]
 
 
 FUNCTIONS = {'abs': _abs,
@@ -1781,9 +2175,19 @@ FUNCTIONS = {'abs': _abs,
              'matrixSum': _matrixSum,
              'matrixWeightedSum': _matrixWeightedSum,
              'matrixMultiply': _matrixMultiply,
+             'matrixToQuaternion': _matrixToQuaternion,
              'min': _min,
              'noise': _noise,
              'pointMatrixProduct': _pointMatrixProduct,
+             'quaternionToEuler': _quaternionToEuler,
+             'quaternionSum': _quaternionSum,
+             'quaternionSub': _quaternionSub,
+             'quaternionSlerp': _quaternionSlerp,
+             'quaternionNormalize': _quaternionNormalize,
+             'quaternionNegate': _quaternionNegate,
+             'quaternionMultiply': _quaternionMultiply,
+             'quaternionInvert': _quaternionInvert,
+             'quaternionConjugate': _quaternionConjugate,
              'radians': _radians,
              'rev': _reverse,
              'sign': _sign,
@@ -1800,6 +2204,26 @@ FUNCTIONS = {'abs': _abs,
              'nDot': _nDot,
              'nPointMatrixProduct': _nPointMatrixProduct,
              'nVectorMatrixProduct': _nVectorMatrixProduct}
+
+
+
+def usage(query=None, verbose=False):
+    """
+    Print usage.
+    """
+    if query in FUNCTIONS:
+        print(FUNCTIONS[query].__doc__)
+
+    else:
+
+        if verbose:
+            for f in sorted(FUNCTIONS):
+                if verbose:
+                    print(FUNCTIONS[f].__doc__)
+                    print
+        else:
+            cli = cmd.Cmd()
+            cli.columnize(sorted(FUNCTIONS.keys()), displaywidth=80)
 
 
 def evaluate_line(exp):
@@ -1863,25 +2287,6 @@ def evaluate_line(exp):
     return ret.eval()
 
 
-def usage(query=None, verbose=False):
-    """
-    Print usage.
-    """
-    if query in FUNCTIONS:
-        print(FUNCTIONS[query].__doc__)
-
-    else:
-
-        if verbose:
-            for f in sorted(FUNCTIONS):
-                if verbose:
-                    print(FUNCTIONS[f].__doc__)
-                    print
-        else:
-            cli = cmd.Cmd()
-            cli.columnize(sorted(FUNCTIONS.keys()), displaywidth=80)
-
-
 def eval(expression, variables=None):
     """
     Evaluates every line of a given expressions, and handles variable casting when prefixed with "$"
@@ -1908,32 +2313,68 @@ def eval(expression, variables=None):
                 line = line[:-1]
 
             # --- Process variables --- #
-            # Are we piping a result into a variables (line will begin with $... =)
+            # Are we piping a result into a variables? (line will begin with $... =)
             stored = None
+            list_connect = False
+            
             if line.startswith('$'):
                 stored = re.findall(r'\$.+?=', line)
                 if stored:
-                    stored = stored[0]
-                    if '.' in stored:
-                        stored = None  # this is a normal variable bubstitution
+                    stored  = stored[0]
+                    stored_ = stored[1:-1].strip()
+
+                    if stored_ in known_variables:
+                        data = known_variables[stored_]
+
+                        # this will be handeled as a normal variable substitution
+                        # in the next phase
+                        if isinstance(data, (str,unicode)) and '.' in data:
+                            stored = None
+                            
+                        # if this is a list, we will multi connect to
+                        # the result at the very end
+                        elif isinstance(data, (list, tuple, set)):
+                            list_connect = data
+                            line = line.replace(stored, '')
+                            stored = None                            
+                            
+                    # record the network output back into this variable at the very end
                     else:
-                        line = line.replace(stored, '')  # stored var will be set at the end
+                        line = line.replace(stored, '')
                         stored = stored[1:-1].strip()
+                        
 
             # process known variables and convert any numerics to str
+            # and also expand lists
             if known_variables:
-                v = sorted([x for x in re.findall("[\d$A-Za-z_]*", line) if x.startswith('$')])[::-1]
+                v = sorted([x for x in re.findall("[\d$A-Za-z_]*", line) if x.startswith('$')], key=len)[::-1]
                 for var in v:
                     if var[1:] in known_variables:
-                        line = line.replace(var, str(known_variables[var[1:]]))
+                        data = known_variables[var[1:]]
+                        
+                        if isinstance(data, (list, tuple, set)):
+                            data = ','.join([str(x) for x in data])
+                        else:
+                            data = str(data)
+                            
+                        line = line.replace(var, data)
+
 
             # --- evaluate the line --- #
-            # print ('eval: %s'%line)
+            print ('eval: %s'%line)
             result = evaluate_line(line)
 
             # store the result
             if stored:
                 known_variables[stored] = result
+                
+            # list connect?
+            if list_connect:
+                for item in list_connect:
+                    connect(result, item)
+                
+                
+                
 
     return result
 
