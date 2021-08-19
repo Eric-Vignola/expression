@@ -19,7 +19,7 @@ from collections import OrderedDict
 import maya.cmds as mc
 
 
-from pyparsing import Forward, Word, Combine, Literal, Optional, Group, ParseResults, ParserElement
+from pyparsing import SkipTo, Forward, Word, Combine, Literal, Optional, Group, ParseResults, ParserElement
 from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
 
 ParserElement.enablePackrat() # speeds up parser
@@ -48,19 +48,19 @@ class Expression(object):
     
     # ---------------------------- PARSER DEFINITION ----------------------------- #
     
-    def __init__(self):
-        self.debug       = True # turns on debug prints
-        self.container   = None # name of the container to create and add all created nodes to
-        self.attributes  = {}   # dict of attribute names and arguments added to the container
-        self.nodes       = []   # keep track of nodes produced by the parser
-        self.expression  = ''   # the evaluated expression
-
-        self.private     = {}   # private variables (declared inside the expression)
-        self.variables   = {}   # user defined variables (always expanded, will never be assigned)
-
-        self.inputAttrs  = OrderedDict()
-        self.outputAttrs = OrderedDict()
-
+    def __init__(self, 
+                 container=None, 
+                 variables=None,
+                 debug=False):
+        
+        self.debug       = debug  # turns on debug prints
+        self.container   = None   # name of the container to create and add all created nodes to
+        self.attributes  = {}     # dict of attribute names and arguments added to the container
+        self.nodes       = []     # keep track of nodes produced by the parser
+        self.expression  = []     # the evaluated expression
+                                  
+        self.private     = {}     # private variables (declared inside the expression)
+        self.variables   = {}     # user defined variables (always expanded, will never be assigned)
 
         expression = Forward()
         integer    = Word(nums) # 42
@@ -74,12 +74,12 @@ class Expression(object):
         
                              
         variable  = Combine( '$' + 
-                             Optional(Word(alphas) + 
-                                          Optional('[' + Optional('-') +
-                                                         Optional(Word(nums)) +
-                                                         Optional(':') +
-                                                         Optional('-') +
-                                                         Optional(Word(nums)) + ']')) + 
+                             Word(alphanums) + 
+                             Optional('[' + Optional('-') +
+                                            Optional(Word(nums)) +
+                                            Optional(':') +
+                                            Optional('-') +
+                                            Optional(Word(nums)) + ']') + 
                              Optional('.'+Word(alphanums) ) 
                              ) # $pi, $list_of_nodes[:-2].t, $MESH.tx                             
                              
@@ -122,7 +122,12 @@ class Expression(object):
         )
         
         
-        self.reset()
+        
+        # Set the variables if specified
+        self.setVariables(variables)
+        
+        # Set the container if need specifiec
+        self.setContainer(container)
 
 
 
@@ -143,56 +148,60 @@ class Expression(object):
         return self.eval()
         
         
-    def __str__(self):
-        return self.expression
+    #def __str__(self):
+        #return self.expression
         
         
-    def __repr__(self):
-        return self.expression
+    #def __repr__(self):
+        #return self.expression
         
     #def __repr__(self):
         #return type(self).__name__ + '("' + '\n'.join(self.expression) + '")'
 
 
+    def setContainer(self, container=None):
+        """ Creates a container """
 
+        # create the container
+        if not self.debug and container:
+            self.container = mc.createNode('container', n=container, ss=True)
+            mc.setAttr('%s.isCollapsed'%self.container,1)
+            
+        # add self.nodes to it
+        if not self.debug and self.container and self.nodes:
+            for node in self.nodes:
+                try:
+                    mc.container(self.container, edit=True, addNode=node)
+                except:
+                    pass
 
-    def setContainer(self, container):
-        """ Sets the name of the container """
+        
+        
+    def setExpression(self, expression=None):
+        """ Appends to the expression """
 
         # store the expression
-        self.container = container 
-        
-        
-    def setExpression(self, expression):
-        """ Sets an expression """
-
-        # store the expression
-        self.expression = expression    
-        
-
-    def setVariables(self, variables):
+        if expression:
+            self.expression.append(expression)
+            
+            
+    def setVariables(self, variables=None):
         """ Sets user variables """
         
         if variables:
             for var in variables:
                 self.variables[var] = variables[var]
-
+                
+                
+    def getNodes(self):
+        """ Returns the expression's nodes """
         
-    def reset(self):
-        """ Resets the parser """
-        self.prefix      = None # prefix for every node created
-        self.suffix      = None # suffix for every node created
-        self.container   = None # name of the container to create and add all created nodes to
-        self.attributes  = {}   # dict of attribute names and arguments added to the container
-        self.nodes       = []   # keep track of nodes produced by the parser
-        self.expression  = ''   # the evaluated expression
+        # if debug mode, or container exists, just return the nodes
+        if self.debug or not self.container:
+            return self.nodes
         
-        self.variables   = {}   # user defined variables (always expanded, will never be assigned)
-        self.private     = BUILTIN_VARIABLES.copy() # private variables (declared inside the expression)
-
-        self.inputAttrs  = OrderedDict()
-        self.outputAttrs = OrderedDict()
-
+        return [self.container]
+      
 
     def eval(self):
         """
@@ -205,11 +214,12 @@ class Expression(object):
             --------
             >>> from rigging.utils.expression import Expression
             >>> exp = Expression()
-            >>> exp.eval('pCube1.t = pCube2.t * 2')
+            >>> exp.setExpression('pCube1.t = pCube2.t * 2')
+            >>> exp.eval()
         """    
         
         # test to make sure expression brackets are valid
-        expression = self.expression
+        expression = self.expression[-1]
         opened = expression.count('(')
         closed = expression.count(')')
         if opened != closed:
@@ -221,23 +231,6 @@ class Expression(object):
         if not isinstance(expression, (list, tuple)):
             expression = re.split('\n|;', str(expression))
             
-            
-        # create container and it's attributes (if any)
-        container = None
-        if self.container:
-            container = mc.createNode('container', n=self.container, ss=True)
-            mc.setAttr('%s.isCollapsed'%container,1)
-            
-            if self.inputAttrs:
-                for attr in self.inputAttrs:
-                    self._addInputAttr(**self.inputAttrs[attr])
-              
-              
-            if self.outputAttrs:
-                for attr in self.outputAttrs:
-                    self._addOutputAttr(**self.outputAttrs[attr])                  
-                    
-
 
         solution = ''
         for line in expression:
@@ -265,7 +258,7 @@ class Expression(object):
                     piped, line = self._findDelimitedListAssignment(line)
                 
 
-                # Patch fix for condition function             
+                # Patch fix for human readable condition formatting            
                 # cond(a>=b,t,f) --> cond(a,>=,b,t,f)
                 regex = r"([^,])(>=|<=|!=|==|>|<)([^,])"
                 replace = r"\1,\2,\3"
@@ -278,7 +271,7 @@ class Expression(object):
                 # evaluate
                 solution = self.parser.parseString(line).asList()
 
-                
+
                 # process stored variable
                 if stored:
                     if self.debug:
@@ -290,26 +283,16 @@ class Expression(object):
                 # connect delimited list
                 elif piped:
                     for item in piped:
-                        if self.debug: 
-                            print ('plugging:   %s ---> %s'%(solution, item)) 
-                            
-                        #self._connectAttr(solution, item, align_plugs=True)           
-                        self._evalAssignOp([item,'=',solution])
+
+                        self._connectAttr(solution[0], item, align_plugs=True)           
+                        #self._evalAssignOp([item,'=',solution[0]])
                         
 
         # if a container is defined, add all the nodes created underneath
         # and put the expression under it's notes for future reading
-        if container:
-            mc.container(container, edit=True, addNode=self.nodes)
-            self.nodes = container
-            
-            mc.addAttr(container, ln='notes', dt='string', keyable=True)
-            mc.setAttr('%s.notes'%container, self.expression, type='string')            
+        if self.container and self.nodes:
+            mc.container(self.container, edit=True, addNode=self.nodes)
 
-
-        if self.debug:
-            mc.select([x for x in self.nodes if mc.objExists(x)], r=True)
-        
         return solution
     
     
@@ -348,15 +331,15 @@ class Expression(object):
         
     # ----------------------------- PARSER OPERATORS ----------------------------- #
 
-    def _flatten_lists(self, sequence):
-        """ Flattens a deeply nested list, which can orrur when expanding variables """
-        if not sequence:
-            return sequence
+    #def _flatten_lists(self, sequence):
+        #""" Flattens a deeply nested list, which can orrur when expanding variables """
+        #if not sequence:
+            #return sequence
         
-        if isinstance(sequence[0], (list, tuple)):
-            return self._flatten_lists(sequence[0]) + self._flatten_lists(sequence[1:])
+        #if isinstance(sequence[0], (list, tuple)):
+            #return self._flatten_lists(sequence[0]) + self._flatten_lists(sequence[1:])
         
-        return sequence[:1] + self._flatten_lists(sequence[1:])        
+        #return sequence[:1] + self._flatten_lists(sequence[1:])        
 
 
     def _operatorOperands(self, tokenlist):
@@ -435,16 +418,16 @@ class Expression(object):
         if not isinstance(dst, (tuple, list, set)):
             dst = [dst]
             
-        # if source is matrix type: decompose to matrix ---> transform 
-        # if source is quat: decompose to quat ---> transform
-        decomposeMatrix = False
-        quatToEuler = False
+        ## if source is matrix type: decompose to matrix ---> transform 
+        ## if source is quat: decompose to quat ---> transform
+        #decomposeMatrix = False
+        #quatToEuler = False
 
-        if self._isMatrixAttr(src):
-            decomposeMatrix = True
+        #if self._isMatrixAttr(src):
+            #decomposeMatrix = True
             
-        elif self._isQuatAttr(src):
-            quatToEuler = True
+        #elif self._isQuatAttr(src):
+            #quatToEuler = True
         
         
         # for each destination token
@@ -452,81 +435,84 @@ class Expression(object):
             
             # If assignment operator
             if op == '=':
+                self._connectAttr(src, item, align_plugs=True)
                 
-                # if source is classic float, int, vector plug
-                if not decomposeMatrix and not quatToEuler:
-                    self._connectAttr(src, item, align_plugs=True)
+                ## if source is classic float, int, vector plug
+                #if not decomposeMatrix and not quatToEuler:
+                    #self._connectAttr(src, item, align_plugs=True)
                 
-                # if source is matrix or quat type
-                else:
+                ## if source is matrix or quat type
+                #else:
                     
-                    # Matrix to Matrix
-                    if self._isMatrixAttr(item):
-                        pass
+                    ## Matrix to Matrix
+                    #if self._isMatrixAttr(item):
+                        #pass
                     
-                    # Matrix to Quat
-                    elif self._isQuatAttr(item):
-                        pass
+                    ## Matrix to Quat
+                    #elif self._isQuatAttr(item):
+                        #pass
                     
-                    # Matrix to Transform
-                    else:
-                        if decomposeMatrix is True:
-                            decomposeMatrix = self._createNode('decomposeMatrix', ss=self.debug)
-                            mc.connectAttr(src, '%s.inputMatrix'%decomposeMatrix)
+                    ## Matrix to Transform
+                    #else:
+                        #if decomposeMatrix is True:
+                            #decomposeMatrix = self._createNode('decomposeMatrix', ss=self.debug)
+                            #mc.connectAttr(src, '%s.inputMatrix'%decomposeMatrix)
                             
-                        _, att = item.split('.')
+                        #_, att = item.split('.')
                         
                         
-                        # scale
-                        if att in ['scale',
-                                   'scaleX',
-                                   'scaleY',
-                                   'scaleZ',
-                                   's',
-                                   'sx',
-                                   'sy',
-                                   'sz']:
+                        ## scale
+                        #if att in ['scale',
+                                   #'scaleX',
+                                   #'scaleY',
+                                   #'scaleZ',
+                                   #'s',
+                                   #'sx',
+                                   #'sy',
+                                   #'sz']:
                                 
-                            self._connectAttr('%s.outputScale'%decomposeMatrix, item)
+                            #self._connectAttr('%s.outputScale'%decomposeMatrix, item)
                             
-                        # rotate
-                        elif att in ['rotate',
-                                     'rotateX',
-                                     'rotateY',
-                                     'rotateZ',
-                                     'r',
-                                     'rx',
-                                     'ry',
-                                     'rz']:
+                        ## rotate
+                        #elif att in ['rotate',
+                                     #'rotateX',
+                                     #'rotateY',
+                                     #'rotateZ',
+                                     #'r',
+                                     #'rx',
+                                     #'ry',
+                                     #'rz']:
                                 
-                            self._connectAttr('%s.outputRotate'%decomposeMatrix, item)                    
+                            #self._connectAttr('%s.outputRotate'%decomposeMatrix, item)                    
                         
-                        # translate
-                        elif att in ['translate',
-                                     'translateX',
-                                     'translateY',
-                                     'translateZ',
-                                     't',
-                                     'tx',
-                                     'ty',
-                                     'tz']:
+                        ## translate
+                        #elif att in ['translate',
+                                     #'translateX',
+                                     #'translateY',
+                                     #'translateZ',
+                                     #'t',
+                                     #'tx',
+                                     #'ty',
+                                     #'tz']:
                                 
-                            self._connectAttr('%s.outputTranslate'%decomposeMatrix, item)
+                            #self._connectAttr('%s.outputTranslate'%decomposeMatrix, item)
                             
-                        # shear  
-                        elif att in ['shear']:
-                            self._connectAttr('%s.outputShear'%decomposeMatrix, item)
+                        ## shear  
+                        #elif att in ['shear']:
+                            #self._connectAttr('%s.outputShear'%decomposeMatrix, item)
                             
                             
-                        else:
-                            raise Exception('Matrix object cannot be connected to: %s'%item)
+                        #else:
+                            #raise Exception('Matrix object cannot be connected to: %s'%item)
     
         return src
     
-        
+    
+    # TODO
+    # Element evaluation can be cleaned up, and could support lists properly
     def _evalElementOp(self, tokens):
         """ Evaluates a given expression element. """
-        
+
         def isfloat(x):
             try:
                 return eval('type(%s)'%x) == float
@@ -544,6 +530,7 @@ class Expression(object):
         variables = self.variables.copy()
         variables.update(self.private)               
 
+        
         # is element None?
         if tokens[0] == 'None':
             return None
@@ -556,94 +543,7 @@ class Expression(object):
         elif isinstance(tokens[0], ParseResults):
             function = tokens[0][0]
             return getattr(self, function)(tokens[0][1])        
-        
-        
-        # is element a variable?
-        elif variables and tokens[0].startswith('$'):
-            
-            var, index, attr = self._splitVariable(tokens[0])
-
-            # is the variable declared?
-            values = None
-            if var in variables:
-                values = variables[var]
-                
-                # if value is a list
-                if not isinstance(values, (list, tuple)) and index:
-                    raise Exception('Variable slicing/indexing only allowed on lists and tuples: %s'%tokens[0])
-                else:
-                    if self.debug:
-                        print ('expanding:  %s ---> %s'%(var, values))              
-
-
-                # if the value is a float
-                if isfloat(values) and not attr:
-                    node = self._double(values)
-                    self.private[var] = node
-                    return node
-                
-                # if the value is an int
-                elif isint(values) and not attr:
-                    node = self._long(values)
-                    self.private[var] = node
-                    return node                    
-                
-                # if value is a string --> node.attr
-                elif isinstance(values, (str, unicode)):
-                    if attr:
-                        return '%s.%s'%(values.split('.')[0], attr)
-                    else:
-                        return values
-
-                
-                # if value is a list
-                elif isinstance(values, (list, tuple)):
-                    
-                    # slice?
-                    if index:
-                        values = values[index]
-                        if not isinstance(values, (tuple, list)):
-                            values = [values]
-                        print 'SLICED: %s %s'%(values, type(values))
-
-                        if self.debug:
-                            print ('expanding:  %s ---> %s'%(tokens[0][1:].split('.')[0], values))                           
-                    else:     
-                        if self.debug:
-                            print ('expanding:  %s ---> %s'%(var, values))
-                            
-                    
-                    # if all of the elements are strings
-                    if all([isinstance(x, (str, unicode)) for x in values]) and not any([(isfloat(x) or isint(x)) for x in values]):
-                        if attr:
-                            values = ['%s.%s'%(x.split('.')[0], attr) for x in values]
-                        return values
-                        
-                        
-                    elif not attr:
-                        
-                        # is it a vector?
-                        if len(values) == 3:
-                            #return self._double3(values)
-                            node = self._double3(values)
-                            self.private[var] = node
-                            return node                            
-
-                        
-                        # is it a 4x4 matrix?
-                        elif len(values) == 16:
-                            node = self._createNode('fourByFourMatrix', ss=(not self.debug))
-                            idx = 0
-                            for i in range(4):
-                                for j in range(4):
-                                    mc.setAttr('%s.in%s%s' % (node, i, j), values[idx])
-                                    idx += 1
-                                    
-                            #return '%s.output'%node
-                            self.private[var] = '%s.output'%node    
-                            return '%s.output'%node                       
-                            
-                    
+                         
         # is element a float?  
         elif isfloat(tokens[0]):
             return self._double(float(tokens[0]))
@@ -655,10 +555,196 @@ class Expression(object):
         # is element a node.attr
         elif mc.objExists(tokens[0]):
                 return tokens[0]
+              
+        # is element a variable?
+        elif variables and tokens[0].startswith('$'): 
+            var, index, attr = self._splitVariable(tokens[0])
             
+            # is the variable declared?
+            values = None
+            if var in variables:
+                values = variables[var]
+                
+                if isinstance(values, (list, tuple, ParseResults)):
+                    if isinstance(values, ParseResults):
+                        values = values.asList()
+
+                    if index is not None:
+                        if isinstance(index, slice):
+                            values = values[index]
+                        else:
+                            values = [values[index]]
+                else:
+                    values = [values]
+
+                if attr:
+                    for i,v in enumerate(values):
+                        values[i] = '%s.%s'%(v,attr)
+                
+         
+                for i,v in enumerate(values):
+                    values[i] = self._evalElementOp([v])
+                
+                
+                if len(values) == 1:
+                    if self.debug:
+                        print 'expanding:  %s ---> %s'%(tokens[0], values[0])
+                    return values[0]
+                
+                print 'expanding:  %s ---> %s'%(tokens[0], values)
+                return values
+
+
         # syntax error
         else:
-            raise Exception('Invalid token: %s'%tokens[0])
+            raise Exception('Invalid token: %s'%tokens[0])   
+    
+    
+        
+    ## TODO
+    ## Element evaluation can be cleaned up, and could support lists properly
+    #def _evalElementOp(self, tokens):
+        #""" Evaluates a given expression element. """
+        
+        #def isfloat(x):
+            #try:
+                #return eval('type(%s)'%x) == float
+            #except:
+                #return False
+        
+        #def isint(x):
+            #try:
+                #return eval('type(%s)'%x) == int
+            #except:
+                #return False                  
+        
+        ## merge variables for simplicity.
+        ## private vars always supercede public.
+        #variables = self.variables.copy()
+        #variables.update(self.private)               
+
+        
+        ## is element None?
+        #if tokens[0] == 'None':
+            #return None
+        
+        ## is it one of the CONDITION_OPERATORS?
+        #elif tokens[0] in CONDITION_OPERATORS:
+            #return tokens[0]
+        
+        ## is element a function?
+        #elif isinstance(tokens[0], ParseResults):
+            #function = tokens[0][0]
+            #return getattr(self, function)(tokens[0][1])        
+        
+        
+        ## is element a variable?
+        #elif variables and tokens[0].startswith('$'):
+            
+            #var, index, attr = self._splitVariable(tokens[0])
+
+            ## is the variable declared?
+            #values = None
+            #if var in variables:
+                #values = variables[var]
+                
+                ## if value is a list
+                #if not isinstance(values, (list, tuple, ParseResults)) and index:
+                    #raise Exception('Variable slicing/indexing only allowed on lists and tuples: %s'%tokens[0])
+                #else:
+                    #if self.debug:
+                        #print ('expanding:  %s ---> %s'%(var, values))              
+
+
+                ## if the value is a float
+                #if isfloat(values) and not attr:
+                    #node = self._double(values)
+                    #self.private[var] = node
+                    #return node
+                
+                ## if the value is an int
+                #elif isint(values) and not attr:
+                    #node = self._long(values)
+                    #self.private[var] = node
+                    #return node                    
+                
+                ## if value is a string --> node.attr
+                #elif isinstance(values, (str, unicode)):
+                    #if attr:
+                        #return '%s.%s'%(values.split('.')[0], attr)
+                    #else:
+                        #return values
+
+                
+                ## if value is a list
+                #elif isinstance(values, (list, tuple, ParseResults)):
+
+                    ## slice?
+                    #if index:
+                        #values = values[index]
+                        #if isinstance(index, int):
+                            #print index
+                            #return self._evalElementOp([str(values)])
+                            
+                            
+                        #if not isinstance(values, (tuple, list)):
+                            #values = [values]
+
+                        #if self.debug:
+                            #print ('expanding:  %s ---> %s'%(tokens[0][1:].split('.')[0], values))                           
+                    #else:
+
+                        #if self.debug:
+                            #print ('expanding:  %s ---> %s'%(var, values))
+                            
+
+                    ## if all of the elements are strings
+                    #if all([isinstance(x, (str, unicode)) for x in values]) and not any([(isfloat(x) or isint(x)) for x in values]):
+                        #if attr:
+                            #values = ['%s.%s'%(x.split('.')[0], attr) for x in values]
+                        #return values
+                    
+                    
+                        
+                    #elif not attr:
+                        
+                        ## is it a vector?
+                        #if len(values) == 3:
+                            ##return self._double3(values)
+                            #node = self._double3(values)
+                            #self.private[var] = node
+                            #return node                            
+
+                        
+                        ## is it a 4x4 matrix?
+                        #elif len(values) == 16:
+                            #node = self._createNode('fourByFourMatrix', ss=(not self.debug))
+                            #idx = 0
+                            #for i in range(4):
+                                #for j in range(4):
+                                    #mc.setAttr('%s.in%s%s' % (node, i, j), values[idx])
+                                    #idx += 1
+                                    
+                            ##return '%s.output'%node
+                            #self.private[var] = '%s.output'%node    
+                            #return '%s.output'%node                       
+                            
+                    
+        ## is element a float?  
+        #elif isfloat(tokens[0]):
+            #return self._double(float(tokens[0]))
+                
+        ## is element an int?
+        #elif isint(tokens[0]):
+            #return self._long(int(tokens[0]))           
+        
+        ## is element a node.attr
+        #elif mc.objExists(tokens[0]):
+                #return tokens[0]
+            
+        ## syntax error
+        #else:
+            #raise Exception('Invalid token: %s'%tokens[0])
             
   
 
@@ -763,74 +849,6 @@ class Expression(object):
                             result[i][j] = attrs[i][min(counts[i], j + 1)]
 
                 return result
-               
-                
-
-
-
-    def _addAttr(self, **kargs):
-        """
-        Adds attributes to the container
-        """
-        if not self.container:
-            raise Exception('No container defined.')
-        
-        elif not mc.objExists(self.container):
-            raise Exception('Cannot addAttr to missing container: %s'%self.container)
-        
-        mc.addAttr(self.container, **kargs)
-        
-        
-    def _addInputAttr(self, **kargs):
-        """
-        Adds input attr to the container
-        """
-        forced_flags = {'multi': False, 'defaultValue': 0.0, 'readable': False, 'keyable': True, 'writable': True, 'storable': True}
-        print kargs
-        for f in forced_flags:
-            kargs[f] = forced_flags[f]
-            
-        self._addAttr(**kargs)
-        
-        
-    def addInputAttr(self, **kargs):
-        """
-        Adds input attr info to self.inputAttrs
-        """
-        if 'ln' in kargs:
-            self.inputAttrs[kargs['ln']] = kargs
-        elif 'longName' in kargs:
-            self.inputAttrs[kargs['longName']] = kargs
-            
-        else:
-            raise Exception('No longname specified for attribute.')
-           
-           
-    def _addOutputAttr(self, **kargs):
-        """
-        Adds output attr to the container
-        """
-        forced_flags = {'multi': False, 'defaultValue': 0.0, 'readable': True, 'keyable': True, 'writable': False, 'storable': False}
-        
-        for f in forced_flags:
-            kargs[f] = forced_flags[f]
-            
-        self._addAttr(**kargs)         
-        
-        
-    def addOutputAttr(self, **kargs):
-        """
-        Adds output attr info to self.outputAttrs
-        """ 
-        if 'ln' in kargs:
-            self.outputAttrs[kargs['ln']] = kargs
-        elif 'longName' in kargs:
-            self.outputAttrs[kargs['longName']] = kargs
-            
-        else:
-            raise Exception('No longname specified for attribute.')
-
-        
         
 
 
@@ -851,43 +869,189 @@ class Expression(object):
         # - many to many  x   --> x,X,r,R
         #                 y   --> y,Y,g,G
         #                 z   --> z,Z,b,B
-        
+
         src, dst = self._getPlugs([src, dst])
+        
+        # if source is matrix type: decompose to matrix ---> transform 
+        # if source is quat: decompose to quat ---> transform
+        decomposeMatrix = False
+        quatToEuler = False
     
-        # match indices according to order
-        if align_plugs and len(src) > 1:
+        if self._isMatrixAttr(src[0]):
+            decomposeMatrix = True
+    
+        elif self._isQuatAttr(src[0]):
+            quatToEuler = True        
+        
+        
+        if not decomposeMatrix and not quatToEuler:
+        
+            # match indices according to order
+            if align_plugs and len(src) > 1:
+    
+    
+                # try to find where the destination is in the array and 
+                # match to source via it's index
+                try:
+    
+                    node = dst[0].split('.')[0]
+                    att  = '.'.join(dst[0].split('.')[1:])
+                    src_ = []
+                    dst_parent = mc.attributeQuery(att, node=node, lp=True)
+    
+                    if dst_parent:
+                        attrs = self._listPlugs('%s.%s'%(node, dst_parent[0]))[1:]
+    
+                        if len(attrs) == len(src):
+    
+                            for i in range(len(src)):
+                                idx = attrs.index(dst[i])
+                                src_.append(src[idx])
+    
+                            src = src_
+    
+                except:
+                    pass
+    
+    
+            for i in range(len(src)):
+                if self.debug:
+                    print ('connecting: %s ---> %s'%(src[i],dst[i]))
+    
+                mc.connectAttr(src[i], dst[i], f=True)
+             
+             
+        else: 
             
-
-            # try to find where the destination is in the array and 
-            # match to source via it's index
-            try:
-                
-                node = dst[0].split('.')[0]
-                att  = '.'.join(dst[0].split('.')[1:])
-                src_ = []
-                dst_parent = mc.attributeQuery(att, node=node, lp=True)
-                
-                if dst_parent:
-                    attrs = self._listPlugs('%s.%s'%(node, dst_parent[0]))[1:]
-    
-                    if len(attrs) == len(src):
-    
-                        for i in range(len(src)):
-                            idx = attrs.index(dst[i])
-                            src_.append(src[idx])
+            src = src[0]
+            dst = dst[0]
+            
+            # Matrix to Matrix
+            if self._isMatrixAttr(dst):
+                mc.connectAttr(src, dst, f=True)
+            
+            # Quat to Quat
+            elif self._isQuatAttr(dst):
+                mc.connectAttr(src, dst, f=True)
+            
+            # Matrix to Transform
+            else:
+                if decomposeMatrix is True:
+                    decomposeMatrix = self._createNode('decomposeMatrix', ss=self.debug)
+                    mc.connectAttr(src, '%s.inputMatrix'%decomposeMatrix)
                     
-                        src = src_
+                _, att = dst.split('.')
+                
+                
+                # scale
+                if att in ['scale',
+                           'scaleX',
+                           'scaleY',
+                           'scaleZ',
+                           's',
+                           'sx',
+                           'sy',
+                           'sz']:
                         
-            except:
-                pass
+                    self._connectAttr('%s.outputScale'%decomposeMatrix, dst)
+                    
+                # rotate
+                elif att in ['rotate',
+                             'rotateX',
+                             'rotateY',
+                             'rotateZ',
+                             'r',
+                             'rx',
+                             'ry',
+                             'rz']:
+                        
+                    self._connectAttr('%s.outputRotate'%decomposeMatrix, dst)                    
+                
+                # translate
+                elif att in ['translate',
+                             'translateX',
+                             'translateY',
+                             'translateZ',
+                             't',
+                             'tx',
+                             'ty',
+                             'tz']:
+                        
+                    self._connectAttr('%s.outputTranslate'%decomposeMatrix, dst)
+                    
+                # shear  
+                elif att in ['shear']:
+                    self._connectAttr('%s.outputShear'%decomposeMatrix, dst)
+                    
+                    
+                else:
+                    
+                    try:
+                        mc.connectAttr(src, dst, f=True)
+                    except:
+                        raise Exception('Matrix object cannot be connected to: %s'%dst)
+            
+            
+            
+                
+                
+
+
+
+    #def _connectAttr(self, src, dst, align_plugs=True):
+        ## Connection logic
+        ## - one to one    x   --> x
+        ## - one to many   x   --> x,X,r,R
+        ##                 x   --> y,Y,g,G
+        ##                 x   --> z,Z,b,B
+        ## - comp to comp  xyz --> xyz 
+        ##                 matrix ---> matrix
+        ## - many to many  z   --> x,X,r,R
+        ##                 z   --> y,Y,g,G
+        ##                 z   --> z,Z,b,B        
+        ##
+        ## (EXPERIMENTAL)
+        ## WITH ALIGN PLUGS
+        ## - many to many  x   --> x,X,r,R
+        ##                 y   --> y,Y,g,G
+        ##                 z   --> z,Z,b,B
+        
+        #src, dst = self._getPlugs([src, dst])
+    
+        ## match indices according to order
+        #if align_plugs and len(src) > 1:
+            
+
+            ## try to find where the destination is in the array and 
+            ## match to source via it's index
+            #try:
+                
+                #node = dst[0].split('.')[0]
+                #att  = '.'.join(dst[0].split('.')[1:])
+                #src_ = []
+                #dst_parent = mc.attributeQuery(att, node=node, lp=True)
+                
+                #if dst_parent:
+                    #attrs = self._listPlugs('%s.%s'%(node, dst_parent[0]))[1:]
+    
+                    #if len(attrs) == len(src):
+    
+                        #for i in range(len(src)):
+                            #idx = attrs.index(dst[i])
+                            #src_.append(src[idx])
+                    
+                        #src = src_
+                        
+            #except:
+                #pass
 
                 
             
-        for i in range(len(src)):
-            if self.debug:
-                print ('connecting: %s ---> %s'%(src[i],dst[i]))
+        #for i in range(len(src)):
+            #if self.debug:
+                #print ('connecting: %s ---> %s'%(src[i],dst[i]))
                 
-            mc.connectAttr(src[i], dst[i], f=True)    
+            #mc.connectAttr(src[i], dst[i], f=True)    
     
     
     def _createNode(self, *args, **kwargs):
@@ -896,6 +1060,12 @@ class Expression(object):
         """
         node = mc.createNode(*args, **kwargs)
         self.nodes.append(node)
+        
+        if self.container:
+            try:
+                mc.container(self.container, edit=True, addNode=node)
+            except:
+                pass                 
         
         return node   
     
@@ -953,12 +1123,12 @@ class Expression(object):
         """
         line = ''.join(line.strip().split())
         variable  = Combine( '$' + 
-                             Optional(Word(alphas) + 
-                                          Optional('[' + Optional('-') +
-                                                         Optional(Word(nums)) +
-                                                         Optional(':') +
-                                                         Optional('-') +
-                                                         Optional(Word(nums)) + ']')) + 
+                             Word(alphanums) + 
+                             Optional('[' + Optional('-') +
+                                            Optional(Word(nums)) +
+                                            Optional(':') +
+                                            Optional('-') +
+                                            Optional(Word(nums)) + ']') + 
                              Optional('.'+Word(alphanums) ) 
                              ) # $pi, $list_of_nodes[:-2].t, $MESH.tx           
         
@@ -1048,16 +1218,16 @@ class Expression(object):
                 var_slice = int(var_slice)
          
         # if var is blank, this is a $.attr situation, and the variable 
-        # is on the container
-        if attr and not var and not self.container:
-            raise Exception('Missing container for attribute $.%s'%attr)
-               
+        # is on the container, make sure container exists.
+        #if not var and not self.container:
+            #raise Exception('Missing container for attribute $.%s'%attr)
+
         return (var, var_slice, attr)
         
     
     
     
-    # ----------------------------- NUMERICAL NODES ------------------------------ #
+
     # ----------------------------- GENERAL NODES ------------------------------ #
     
     # TODO: add input as a time offset
@@ -1077,7 +1247,7 @@ class Expression(object):
             raise Exception('frame functions does not expect inputs')
     
     
-        curve = self._createNode('animCurveTU', ss=(not self.debug))
+        curve = self._createNode('animCurveTU', n='frame1', ss=(not self.debug))
         mc.setKeyframe(curve, t=0, v=0.)
         mc.setKeyframe(curve, t=1, v=1.)
         mc.keyTangent(curve, e=True, itt='linear', ott='linear')
@@ -1104,15 +1274,17 @@ class Expression(object):
     
         # Handle single value or vector
         items = self._getPlugs(items, compound=False)
+        
+        exp = Expression(container='noise1', debug=self.debug)
         results = []
         for i in range(len(items[0])):
             plug = items[0][i]
     
             # create a noise node
-            noise = self._createNode('noise', ss=(not self.debug))
+            noise = exp._createNode('noise_node1', ss=(not self.debug))
             mc.setAttr('%s.ratio' % noise, 1)
             mc.setAttr('%s.noiseType' % noise, 4)  # set noise to 4d perlin (spacetime)
-            mc.setAttr('%s.frequencyRatio' % noise, CONSTANTS['phi'])  # set freq to golden value
+            mc.setAttr('%s.frequencyRatio' % noise, BUILTIN_VARIABLES['phi'])  # set freq to golden value
     
             # animate the time function with a random seed value
             v0 = random.randint(-1234, 1234) + random.random()
@@ -1121,25 +1293,101 @@ class Expression(object):
             mc.setKeyframe(noise, attribute='time', t=1, v=v1)
             
             curve = mc.listConnections('%s.time' % noise)[0]
+            exp.nodes.append(curve)
             mc.keyTangent(curve, e=True, itt='linear', ott='linear')
             mc.setAttr('%s.preInfinity' % curve, 4)
             mc.setAttr('%s.postInfinity' % curve, 4)
     
             # clamp output because sometimes noise goes beyond 0-1 range
-            exp = '%s * clamp(%s.outColorR, 0.001,0.999)' % (plug, noise)
-            results.append(self.eval(exp))
+            results.append(exp('%s * clamp(%s.outColorR, 0.001,0.999)' % (plug, noise))[0])
+            #exp = '%s * clamp(%s.outColorR, 0.001,0.999)' % (plug, noise)
+            #results.append(self.eval(exp))
     
+        result = None
         if len(results) == 1:
-            return results[0]
+            result = results[0]
     
         elif len(results) == 3:
-            vec = self._double3()
+            result = exp._double3()
             for i, xyz in enumerate(['X', 'Y', 'Z']):
-                self._connectAttr(results[i], '%s%s' % (vec, xyz))
-            return vec
-    
+                self._connectAttr(results[i], '%s%s' % (result, xyz))
+            
         else:
             raise Exception('random functions ony supports 1 or 3 plugs. given: %s'%results)
+
+        self.nodes.extend(exp.getNodes())
+        return result
+
+
+
+    @parsedcommand
+    def lerp(self, items):
+        """ 
+        lerp(<input>, <input>, <weight>)
+        
+            Linear interpolation between two inputs and a weight value.
+        
+            Examples
+            --------
+            >>> lerp(pCube1.tx, pCube2.tx, pCube3.weight)  # Computes the magnitude of [tx, ty, tz].
+        """
+        if len(items) != 3:
+            raise Exception('lerp requires 3 inputs, given: %s' % items)
+    
+        exp = Expression(container='lerp1', variables=locals(), debug=self.debug)
+        node = exp('$items[0] + $items[2] * ($items[1]-$items[0])', variables=locals())[0]
+
+        self.nodes.extend(exp.getNodes())
+        return node
+    
+    
+    @parsedcommand
+    def elerp(self, items):
+        """ 
+        elerp(<input>, <input>, <weight>)
+        
+            Exponent linear interpolation between two inputs and a weight value.
+        
+            Examples
+            --------
+            >>> elerp(pCube1.tx, pCube2.tx, pCube3.weight)  # Computes the magnitude of [tx, ty, tz].
+        """
+        if len(items) != 3:
+            raise Exception('lerp requires 3 inputs, given: %s' % items)
+    
+    
+        exp = Expression(container='elerp1', variables=locals(), debug=self.debug)
+        node = exp('$items[0]**rev($items[2]) * $items[1]**$items[2]')[0]
+        self.nodes.extend(exp.getNodes())
+        return node 
+    
+    @parsedcommand
+    def slerp(self, items):
+        """ 
+        slerp(<input>, <input>, <weight>)
+        
+            Spherical linear interpolation between two inputs and a weight value.
+        
+            Examples
+            --------
+            >>> slerp(pCube1.tx, pCube2.tx, pCube3.weight)  # Computes the magnitude of [tx, ty, tz].
+        """
+        if len(items) != 3:
+            raise Exception('slerp requires 3 inputs, given: %s' % items)
+    
+        v0 = items[0]
+        v1 = items[1]
+        blend = items[2]
+    
+        exp = Expression(container='slerp1', variables=locals(), debug=self.debug)   
+        exp('$angle = acos(dot(unit($v0), unit($v1)))')
+        node = exp('(($v0*sin(rev($blend)*$angle)) + ($v1*sin($blend*$angle)))/sin($angle)')
+        self.nodes.extend(exp.getNodes())
+        return node         
+        
+        
+    
+
 
     @parsedcommand
     def mag(self, items):
@@ -1338,11 +1586,21 @@ class Expression(object):
 
             # floor division
             elif op == '//':
-                return self.eval('floor(%s/%s)' % (items[0], items[1]))
+                exp = Expression(container='floorDivision1', debug=self.debug)
+                result = exp('floor(%s/%s)' % (items[0], items[1]))[0]
+                
+                self.nodes.extend(exp.getNodes())
+                return result                
+                #return self.eval('floor(%s/%s)' % (items[0], items[1]))
             
             # modulo
             elif op == '%':
-                return self.eval('%s - floor(%s/%s)*%s' % (items[0], items[0], items[1], items[1])) 
+                exp = Expression(container='modulo1' ,debug=self.debug)
+                result = exp('%s - floor(%s/%s)*%s' % (items[0], items[0], items[1], items[1]))[0]
+                
+                self.nodes.extend(exp.getNodes())                
+                return result
+                #return self.eval('%s - floor(%s/%s)*%s' % (items[0], items[0], items[1], items[1])) 
   
             
             else:
@@ -1544,26 +1802,29 @@ class Expression(object):
             >>> int(pCube1.t)
             >>> int(pCube1.tx)
         """
-    
+        
+        exp = Expression(container='int1', debug=self.debug)
+            
         if len(items) != 1:
             raise Exception('int() requires 1 input, given: %s' % items)
     
+        node = None
         if len(self._getPlugs(items[0])[0]) > 1:
-            node = self._long3()
+            node = exp._long3()
         else:
-            node = self._long()
+            node = exp._long()
     
-        f = self._double(0.4999999)  # correct Maya's inappropriate int convention
-        zero = self._long()
-    
-        true  = self.sub([items[0], f])
-        false = self.add([items[0], f])
-    
-        test = self.cond([items[0], '>', zero, true, false])
+        obj = items[0]
+        exp('$f = 0.4999999')
+        exp('$true  = $obj - $f', variables=locals())
+        exp('$false = $obj + $f', variables=locals())
+        exp('$node  = if ($obj > 0, $true, $false)', variables=locals())
         
-        self._connectAttr(test, node)
-    
+        self.nodes.extend(exp.getNodes())    
+        
         return node
+    
+        
     
     
     @parsedcommand
@@ -1746,18 +2007,24 @@ class Expression(object):
         if not len(items) in [1, 3]:
             raise Exception('abs works on 1 or 3 inputs, given: %s' % items)
     
+    
+        exp = Expression(container='abs1', debug=self.debug)
+        exp('$zero = 0')
+        exp('$neg1 = -1')
+
         result = []
-        zero = self._long(0)
         for item in items:
-            neg = self.mult([self._long(-1), item])
-            test = self.cond([item, '<', zero, neg, item])
+            exp('$neg = $neg1 * $item', variables=locals())
+            test = exp('if ($item < $zero, $neg, $item)\n', variables=locals())[0]
             result.append(test)
     
         if len(result) > 1:
-            return self.vector(result)
+            result = exp('vector($result)\n', variables=locals())
     
-        else:
-            return result[0]
+
+        self.nodes.extend(exp.getNodes())  
+        return result[0]
+        
         
         
     @parsedcommand   
@@ -1777,7 +2044,7 @@ class Expression(object):
         if len(items) < 2:
             raise Exception('choice requires minimum 2 inputs, given: %s' % items)
     
-            # create choice node
+        # create choice node
         node = self._createNode('choice', ss=(not self.debug))
     
         # plug selector
@@ -1787,7 +2054,7 @@ class Expression(object):
                 self._connectAttr(items[0], '%s.selector' % node)
                 
             else:
-                integer = self.eval('int(%s)'%items[0])
+                integer = self('int(%s)'%items[0])[0]
                 self._connectAttr(integer, '%s.selector' % node)
     
         # plug inputs
@@ -1795,6 +2062,7 @@ class Expression(object):
             self._connectAttr(item, '%s.input' % node)
     
         return '%s.output' % node
+    
     
     @parsedcommand
     def vector(self, items):
@@ -1912,14 +2180,17 @@ class Expression(object):
         if len(items) != 1:
             raise Exception('unit() requires 1 input, given: %s' % items)
     
-        mag    = self.mag(items)
-        mult   = self.div([items[0], mag])
-        zero   = self._long(0)
-        two    = self._long(2)
+        exp    = Expression(container='unit1', debug=self.debug)
+        mag    = exp.mag(items)
+        mult   = exp.div([items[0], mag])
+        zero   = exp._long(0)
+        two    = exp._long(2)
     
         node   = mult.split('.')[0]
-        test   = self.cond(mag, '==', zero, zero, two)
-        bypass = self.cond(mag, '==', zero, test, mult)
+        test   = exp.cond([mag, '==', zero, zero, two])
+        bypass = exp.cond([mag, '==', zero, test, mult])
+    
+        self.nodes.extend(exp.getNodes())    
     
         self._connectAttr(test, '%s.operation' % node) # silence div by zero error
         return bypass      
@@ -1928,19 +2199,21 @@ class Expression(object):
     
     # ------------------------- TRIGONOMETRIC FUNCTIONS -------------------------- # 
 
-    def _trigonometry(self, items, x, y, modulo=None):
+    def _trigonometry(self, items, x, y, modulo=None, container=None):
         """
         Sets up a ramapValue node for sine/cosine trigonometric functions.
         """
         items = self._getPlugs(items, compound=False)
+        
+        exp = Expression(container=container, debug=self.debug)
         results = []
         for i in range(len(items[0])):
     
             plug = items[0][i]
             if modulo:
-                plug = self.eval(str(plug) + '%' + str(modulo))
+                plug = exp(str(plug) + '%' + str(modulo))[0]
     
-            node = self._createNode('remapValue', ss=self.debug)
+            node = exp._createNode('remapValue', ss=self.debug)
             self._connectAttr(plug, '%s.inputValue' % node)
     
             for j in range(len(x)):
@@ -1950,18 +2223,28 @@ class Expression(object):
     
             results.append('%s.outValue' % node)
     
+    
+        result = None
         if len(results) == 1:
-            return results[0]
+            result = results[0]
     
         elif len(results) == 3:
-            vec = self._double3()
+            vec = exp._double3()
             
             for i, xyz in enumerate(['X', 'Y', 'Z']):
                 mc.connectAttr(results[i], '%s%s' % (vec, xyz), f=True)
-            return vec
+                
+            result = vec
     
         else:
-            raise Exception('trigonometric functions ony supports 1 or 3 plugs')     
+            raise Exception('trigonometric functions ony supports 1 or 3 plugs')
+        
+        
+
+        self.nodes.extend(exp.getNodes())           
+        
+        return result
+        
         
     @parsedcommand    
     def degrees(self, items):
@@ -1976,7 +2259,13 @@ class Expression(object):
             >>> degrees(radians(pCube1.rx)) # returns a network which converts rotationX to radians and back to degrees.
             >>> degrees(radians(pCube1.r))  # returns a network which converts [rx, ry, rz] to radians and back to degrees.
         """
-        return self.eval('%s * %s' % (items[0], (180./math.pi) ))
+        #return self.eval('%s * %s' % (items[0], (180./math.pi) ))
+        exp = Expression(container='degrees', debug=self.debug)
+        result = exp('%s * %s' % (items[0], (180./math.pi) ))[0]
+        
+        self.nodes.extend(exp.getNodes())
+        return result
+
 
     @parsedcommand
     def radians(self, items):
@@ -1991,7 +2280,12 @@ class Expression(object):
             >>> radians(pCube1.rx) # returns a network which converts rotationX to radians.
             >>> radians(pCube1.r)  # returns a network which converts [rx, ry, rz] to radians.
         """
-        return self.eval('%s * %s' % (items[0], (math.pi/180.) ))
+        #return self.eval('%s * %s' % (items[0], (math.pi/180.) ))
+        exp = Expression(container='radians', debug=self.debug)
+        result = exp('%s * %s' % (items[0], (math.pi/180.) ))[0]
+        
+        self.nodes.extend(exp.getNodes()) 
+        return result    
 
 
     # TODO: add built in start, stop remap values
@@ -2007,7 +2301,7 @@ class Expression(object):
             >>> easeIn(pCube1.tx) # returns a network which tweens pCube1's translateX value.
             >>> easeIn(pCube1.t)  # returns a network which tweens pCube1's [tx, ty, tz] values.
         """
-        return self._trigonometry(items, x=[0, 1], y=[0, 1])
+        return self._trigonometry(items, x=[0, 1], y=[0, 1], container='easeIn')
 
 
     # TODO: add built in start, stop remap values
@@ -2023,7 +2317,7 @@ class Expression(object):
             >>> easeOut(pCube1.tx) # returns a network which tweens pCube1's translateX value.
             >>> easeOut(pCube1.t)  # returns a network which tweens pCube1's [tx, ty, tz] values.
         """
-        return self._trigonometry(items, x=[1, 0], y=[0, 1])
+        return self._trigonometry(items, x=[1, 0], y=[0, 1], container='easeOut')
 
     @parsedcommand
     def sin(self, items):
@@ -2039,7 +2333,7 @@ class Expression(object):
         """
         x = [(-5 * math.pi / 2), (5 * math.pi / 2), (-3 * math.pi / 2), (-1 * math.pi / 2), (math.pi / 2), (3 * math.pi / 2)]
         y = [-1, 1, 1, -1, 1, -1]
-        return self._trigonometry(items, x, y, modulo=2 * math.pi)
+        return self._trigonometry(items, x, y, modulo=2 * math.pi, container='sin1')
 
     @parsedcommand
     def sind(self, items):
@@ -2055,7 +2349,7 @@ class Expression(object):
         """
         x = [(-5 * 180. / 2), (5 * 180. / 2), (-3 * 180. / 2), (-1 * 180. / 2), (180. / 2), (3 * 180. / 2)]
         y = [-1, 1, 1, -1, 1, -1]        
-        return self._trigonometry(items, x, y, modulo=2 * 180.)
+        return self._trigonometry(items, x, y, modulo=2 * 180., container='sind1')
 
     @parsedcommand
     def cos(self, items):
@@ -2072,7 +2366,7 @@ class Expression(object):
     
         x = [(-2 * math.pi), (2 * math.pi), (-1 * math.pi), 0, math.pi]
         y = [1, 1, -1, 1, -1]
-        return self._trigonometry(items, x, y, modulo=2 * math.pi)    
+        return self._trigonometry(items, x, y, modulo=2 * math.pi, container='cos1')    
     
     @parsedcommand
     def cosd(self, items):
@@ -2088,7 +2382,7 @@ class Expression(object):
         """
         x = [(-2 * 180.), (2 * 180.), (-1 * 180.), 0, 180.]
         y = [1, 1, -1, 1, -1]
-        return self._trigonometry(items, x, y, modulo=2 * 180.)   
+        return self._trigonometry(items, x, y, modulo=2 * 180., container='cosd1')   
     
     
     @parsedcommand
@@ -2107,6 +2401,8 @@ class Expression(object):
         # https://developer.download.nvidia.com/cg/acos.html
         items = self._getPlugs(items, compound=False)
         results = []
+        e = Expression(container='acos1', debug=self.debug)
+         
         for i in range(len(items[0])):
             plug = items[0][i]
     
@@ -2124,19 +2420,25 @@ class Expression(object):
             $negate * 3.14159265358979 + $ret
             """ % (plug, plug)
     
-            results.append(self.eval(exp))
+            # pack in it's own container to reduce the clutter
+            results.append(e(exp)[0])
+            #results.append(self(exp))
     
+        result = None
         if len(results) == 1:
-            return results[0]
+            result = results[0]
     
         elif len(results) == 3:
-            vec = self._double3()
+            result = e._double3()
             for i, xyz in enumerate(['X', 'Y', 'Z']):
-                self._connectAttr(results[i], '%s%s' % (vec, xyz))
-            return vec
+                self._connectAttr(results[i], '%s%s' % (result, xyz))
     
         else:
             raise Exception('trigonometric functions only supports 1 or 3 plugs')    
+
+        self.nodes.extend(e.getNodes())
+        return result
+
 
 
     @parsedcommand
@@ -2154,6 +2456,7 @@ class Expression(object):
     
         # https://developer.download.nvidia.com/cg/asin.html
         items = self._getPlugs(items, compound=False)
+        e = Expression(container='asin1', debug=self.debug)
         results = []
         for i in range(len(items[0])):
             plug = items[0][i]
@@ -2173,27 +2476,29 @@ class Expression(object):
             $ret - 2 * $negate * $ret
             """ % (plug, plug)
             
-            results.append(self.eval(exp))
+            # pack in it's own container to reduce the clutter
+            e = Expression(container='asin1', debug=self.debug)
+            results.append(e(exp)[0])
+            #results.append(self(exp))
             
-            ## use a separate instance just so so we dont' clobber existing variables
-            #e = Expression() 
-            #result = e.eval(exp)
-            #self.nodes += e.nodes
-            #results.append(result)         
-    
-            
-    
+
+        result = None
         if len(results) == 1:
-            return results[0]
+            result = results[0]
     
         elif len(results) == 3:
-            vec = self._double3()
+            result = e._double3()
             for i, xyz in enumerate(['X', 'Y', 'Z']):
-                self._connectAttr(results[i], '%s%s' % (vec, xyz))
-            return vec
+                self._connectAttr(results[i], '%s%s' % (result, xyz))
     
         else:
-            raise Exception('trigonometric functions ony supports 1 or 3 plugs')
+            raise Exception('trigonometric functions only supports 1 or 3 plugs')    
+    
+        self.nodes.extend(e.getNodes())
+        return result
+        
+        
+        
 
     @parsedcommand
     def acosd(self, items):
@@ -2207,7 +2512,16 @@ class Expression(object):
             >>> acosd(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine approximation function.
             >>> acosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine approximation functions.
         """
-        return self.eval('degrees(acos(%s))' % items[0])
+        
+    
+        # pack in it's own container to reduce the clutter
+        e = Expression(container='acosd1', debug=self.debug)
+        result = e('degrees(acos(%s))' % items[0])[0]
+        self.nodes.extend(e.getNodes())
+        return result
+        #return self.eval('degrees(acos(%s))' % items[0])
+    
+    
     
     @parsedcommand
     def asind(self, items):
@@ -2221,7 +2535,12 @@ class Expression(object):
             >>> asind(pCube1.tx) # returns a network which passes pCube1's translateX into an arc sine approximation function.
             >>> asind(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc sine approximation functions.
         """
-        return self.eval('degrees(asin(%s))' % items[0])    
+        e = Expression(container='asind1', debug=self.debug)
+        result = e('degrees(asin(%s))' % items[0])[0]
+        self.nodes.extend(e.getNodes())
+        return result        
+        #return self.eval('degrees(asin(%s))' % items[0])    
+    
     
     @parsedcommand
     def tan(self, items):
@@ -2245,13 +2564,12 @@ class Expression(object):
         if($cos != 0, $tan, 16331239353195370)
         """ % (items[0], items[0])
         
-        return self.eval(exp)
-        
-        ## use a separate instance just so so we dont' clobber existing variables
-        #e = Expression() 
-        #result = e.eval(exp)
-        #self.nodes += e.nodes
-        #return result
+        # pack in it's own container to reduce the clutter
+        e = Expression(container='tan1', debug=self.debug)
+        result = e(exp)[0]
+        self.nodes.extend(e.getNodes())
+        return result
+        #results.append(self(exp))
         
     
     @parsedcommand
@@ -2275,13 +2593,13 @@ class Expression(object):
         if($cos != 0, $tan, 16331239353195370)
         """ % (items[0], items[0])
     
-        return self.eval(exp)
+        # pack in it's own container to reduce the clutter
+        e = Expression(container='tand1', debug=self.debug)
+        result = e(exp)[0]
+        self.nodes.extend(e.getNodes)
+        return result    
+        #return self.eval(exp)
         
-        ## use a separate instance just so so we dont' clobber existing variables
-        #e = Expression() 
-        #result = e.eval(exp)
-        #self.nodes += e.nodes
-        #return result
     
     
     # TODO
@@ -2538,7 +2856,7 @@ class Expression(object):
             else:
                 weights.append(item)
     
-        node = mc.createNode('quatSlerp', ss=(not self.debug))
+        node = self._createNode('quatSlerp', ss=(not self.debug))
     
         self._connectAttr(quats[0], '%s.input1Quat' % (node))
         self._connectAttr(quats[1], '%s.input2Quat' % (node))
@@ -3067,4 +3385,9 @@ class Expression(object):
         return '%s.output' % node
 
 
+
+
+# TODO
+# - load/save
+# - test everything
 
