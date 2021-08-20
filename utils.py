@@ -19,7 +19,7 @@ from collections import OrderedDict
 import maya.cmds as mc
 
 
-from pyparsing import SkipTo, Forward, Word, Combine, Literal, Optional, Group, ParseResults, ParserElement
+from pyparsing import Regex, SkipTo, Forward, Word, Combine, Literal, Optional, Group, ParseResults, ParserElement
 from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
 
 ParserElement.enablePackrat() # speeds up parser
@@ -55,6 +55,9 @@ class Expression(object):
         
         self.debug       = debug  # turns on debug prints
         self.container   = None   # name of the container to create and add all created nodes to
+        self.constants   = {}     # dict of constants for replacement lookup
+        self.constant    = None   # name of network node used to pack constants
+        self.repack      = True
         self.attributes  = {}     # dict of attribute names and arguments added to the container
         self.nodes       = []     # keep track of nodes produced by the parser
         self.expression  = []     # the evaluated expression
@@ -268,6 +271,7 @@ class Expression(object):
                 regex = re.compile('\W?\w+[(]', re.S)
                 line = regex.sub(lambda m: m.group().replace('if(',"cond(",1), line)        
                 
+                
                 # evaluate
                 solution = self.parser.parseString(line).asList()
 
@@ -399,8 +403,36 @@ class Expression(object):
     
     def _evalSignOp(self, tokens):
         """ Evaluate expressions with a leading + or - sign """
-
+        
         res = tokens[0][1]
+        
+        if self.repack:
+            if self.constants:
+                inv_map = {v: k for k, v in self.constants.iteritems()}
+                
+                # is this a mapped constant?
+                if res in inv_map:
+
+                    # is it already connected to something?
+                    if not mc.listConnections(res):
+
+                        # if not, this is a first instance of an _evalSignOp
+                        # we can hack it and skip the multiplication step
+                        val = mc.getAttr(res)
+                        neg = -1 * val                        
+                        
+                        # is the negated value already in memory?
+                        if neg in self.constants:
+                            
+                            # unfortunately this will leave a gap in the multi array
+                            return self.constants[neg]
+                        
+                        # replace the value in self.constants
+                        mc.setAttr(res, neg) # swap + for -
+                        self.constants[neg] = self.constants.pop(val)
+                    
+                        return self.constants[neg]
+                    
         if tokens[0][0] == '-':
             res = self.mult([self._long(-1), res])
             
@@ -546,11 +578,11 @@ class Expression(object):
                          
         # is element a float?  
         elif isfloat(tokens[0]):
-            return self._double(float(tokens[0]))
+            return self._double(float(tokens[0]), constant=True)
                 
         # is element an int?
         elif isint(tokens[0]):
-            return self._long(int(tokens[0]))           
+            return self._long(int(tokens[0]), constant=True)           
         
         # is element a node.attr
         elif mc.objExists(tokens[0]):
@@ -718,7 +750,7 @@ class Expression(object):
                         
                         ## is it a 4x4 matrix?
                         #elif len(values) == 16:
-                            #node = self._createNode('fourByFourMatrix', ss=(not self.debug))
+                            #node = self._createNode('fourByFourMatrix', ss=True)
                             #idx = 0
                             #for i in range(4):
                                 #for j in range(4):
@@ -782,7 +814,10 @@ class Expression(object):
     
         while True:
             if not mc.listConnections(search % index, s=True, d=False):
-                return search % index
+                result = search % index
+                if result.endswith('.'):
+                    return result[:-1]
+                return result
     
             index += 1
     
@@ -1111,6 +1146,74 @@ class Expression(object):
         """
         return mc.getAttr(item, type=True) in ['double4', 'TdataCompound']
 
+
+
+    #def _packNumericConstants(self, line):
+        #"""
+        #Extracts all numeric constants from the expression and
+        #adds them to a single network node. Each constant will
+        #be added as a variable for future lookup.
+        #"""
+        
+        #def isfloat(x):
+            #try:
+                #return eval('type(%s)'%x) == float
+            #except:
+                #return False
+
+        #constants = [x[0] for x in Regex(r'[+-]?\d+\.?\d*([eE][+-]?\d+)?').searchString(line).asList()] 
+        #constants = sorted(set(constants), key=len)[::-1] # reverse order for safe replace
+        #constants = [x for x in constants if float(x)]
+ 
+ 
+        #if constants:
+            
+            ## create the constant node if does not exist
+            #if not self.constant:
+                #self.constant = self._createNode('network', name='constants1', ss=True)
+                #mc.addAttr(self.constant, ln = "integers", at="long",   m=True)
+                #mc.addAttr(self.constant, ln = "floats",   at="double", m=True)              
+            
+            
+            ## step 1, replace any constants with random garbage
+            #garbage = {} # 'DFDFAFDFD':'3.14'
+            #for x in constants:
+                #random_garbage = ''.join(random.choice(string.ascii_uppercase) for _ in range(16))
+                #garbage[x] = random_garbage
+    
+                #line = line.replace(x, random_garbage) 
+                
+                
+            ## step 2, properly replace random garbage with proper constant
+            #for x in constants:
+                
+                #plug = None
+                #if x in self.constants:
+                    #plug = self.constants[x]
+                
+                #else:       
+                    #if isfloat(x):
+                        #plug = self._nextFreePlug('%s.floats'%self.constant)
+                        #mc.setAttr(plug, float(x))
+                    #else:
+                        #plug = self._nextFreePlug('%s.integers'%self.constant)
+                        #mc.setAttr(plug, int(x))
+                    
+
+                ## replace using the constant node
+                #line = line.replace(garbage[x], plug)  
+
+
+        ## return the line    
+        #return line
+            
+
+                
+    
+    
+    
+    
+    
     
     
     def _findVariableAssignment(self, line):
@@ -1247,7 +1350,7 @@ class Expression(object):
             raise Exception('frame functions does not expect inputs')
     
     
-        curve = self._createNode('animCurveTU', n='frame1', ss=(not self.debug))
+        curve = self._createNode('animCurveTU', n='frame1', ss=True)
         mc.setKeyframe(curve, t=0, v=0.)
         mc.setKeyframe(curve, t=1, v=1.)
         mc.keyTangent(curve, e=True, itt='linear', ott='linear')
@@ -1281,7 +1384,7 @@ class Expression(object):
             plug = items[0][i]
     
             # create a noise node
-            noise = exp._createNode('noise_node1', ss=(not self.debug))
+            noise = exp._createNode('noise_node1', ss=True)
             mc.setAttr('%s.ratio' % noise, 1)
             mc.setAttr('%s.noiseType' % noise, 4)  # set noise to 4d perlin (spacetime)
             mc.setAttr('%s.frequencyRatio' % noise, BUILTIN_VARIABLES['phi'])  # set freq to golden value
@@ -1403,7 +1506,7 @@ class Expression(object):
         if len(items) != 1:
             raise Exception('mag requires 1 input, given: %s' % items)
     
-        node = self._createNode('distanceBetween', ss=(not self.debug))
+        node = self._createNode('distanceBetween', ss=True)
         self._connectAttr(items[0], '%s.point1' % node)
     
         return '%s.distance' % node
@@ -1432,7 +1535,7 @@ class Expression(object):
             raise Exception('unsupported condition operator. given: %s'%op[0])
     
         if len(A) == 1 and len(B) == 1:
-            node = self._createNode('condition', ss=(not self.debug))
+            node = self._createNode('condition', ss=True)
     
             self._connectAttr(A[0], '%s.firstTerm' % node)
             mc.setAttr('%s.operation' % node, CONDITION_OPERATORS[op[0]])
@@ -1473,7 +1576,7 @@ class Expression(object):
     
         # all inputs differ, use a clamp node
         if items[0] != items[1] and items[0] != items[2]:
-            node = self._createNode('clamp', ss=(not self.debug))
+            node = self._createNode('clamp', ss=True)
             mc.setAttr('%s.renderPassMode' % node, 0)
             self._connectAttr(items[1], '%s.min' % node)
             self._connectAttr(items[2], '%s.max' % node)
@@ -1493,67 +1596,119 @@ class Expression(object):
     
     
     
-    # ----------------------------- NUMERICAL NODES ------------------------------ #
-    def _number(self, value=0, at='double', name='number1'):
+    # ----------------------------- NUMERICAL NODES ------------------------------ #    
+    def _number(self, value=0, at='double', name='number1', constant=False):
         """
         Creates a single numeric value using a network node (default float).
         """
-        node = self._createNode('network', name=name, ss=(not self.debug))
+        
+        # return repacked constant
+        if constant and self.repack:
+            
+            if value in self.constants:
+                return self.constants[value]
+            
+            if not self.constant:
+                self.constant = self._createNode('network', name='constants1', ss=True) 
+                
+            if not mc.attributeQuery(at, node=self.constant, exists=True):
+                mc.addAttr(self.constant, ln=at, at=at, dv=0, m=True)
+                
+            index = mc.listAttr('%s.%s'%(self.constant,at), m=True) 
+            index = len(index) if index is not None else 0
+            plug = '%s.%s[%s]'%(self.constant, at, index)
+            
+            mc.setAttr(plug, value)
+            self.constants[value] = plug
+            
+            return plug
+        
+        
+        node = self._createNode('network', name=name, ss=True)
         mc.addAttr(node, ln='output', at=at, dv=float(value), keyable=True)
         
         return '%s.output' % node
     
 
-    def _number3(self, value=(0,0,0), at='double', name='number1'):
+    def _number3(self, value=(0,0,0), at='double', name='number1', constant=False):
         """
         Creates a vector numeric value using a network node (default double3).
         """
-        value = [float(x) for x in value]
-        node = self._createNode('network', name=name, ss=(not self.debug))
         
-        mc.addAttr(node, ln='output', at='%s3' % at, keyable=True)
-        mc.addAttr(node, ln='outputX', at=at, p='output', dv=value[0], keyable=True)
-        mc.addAttr(node, ln='outputY', at=at, p='output', dv=value[1], keyable=True)
-        mc.addAttr(node, ln='outputZ', at=at, p='output', dv=value[2], keyable=True)
+        # return repacked constant
+        if constant and self.repack:        
+        
+            # return prepacked constant
+            if value in self.constants:
+                return self.constants[value]
+            
+            att = '%s3'%at
+            if not self.constant:
+                self.constant = self._createNode('network', name='constants1', ss=True)
+                
+            if not mc.attributeQuery(att, node=self.constant, exists=True):
+                mc.addAttr(self.constant, ln=att, at=att, m=True)        
+                mc.addAttr(node, ln='%sX'%at, at=at, dv=0, p=att)
+                mc.addAttr(node, ln='%sY'%at, at=at, dv=0, p=att)
+                mc.addAttr(node, ln='%sZ'%at, at=at, dv=0, p=att)
+                
+            index = mc.listAttr('%s.%s'%(self.constant,att), m=True) 
+            index = len(index) if index is not None else 0
+            plug = '%s.%s[%s]'%(self.constant, att, index)
+            mc.setAttr(plug, *value)
+            self.constants[value] = plug
+            return plug
+                
+        else:
+            
+            node = self._createNode('network', name=name, ss=True)
+            mc.addAttr(node, ln='output', at='%s3' % at, keyable=True)
+            mc.addAttr(node, ln='outputX', at=at, p='output', dv=value[0], keyable=True)
+            mc.addAttr(node, ln='outputY', at=at, p='output', dv=value[1], keyable=True)
+            mc.addAttr(node, ln='outputZ', at=at, p='output', dv=value[2], keyable=True)
+        
+            return '%s.output' % node  
+        
     
-        return '%s.output' % node  
     
-    
-    
-    def _long(self, value=0, name='integer1'):
+    def _long(self, value=0, name='integer1', constant=False):
         """
         Creates a single numeric integer using a network node.
         """        
         return self._number(value=value,
                             name=name,
-                            at='long')
+                            at='long',
+                            constant=constant)
     
     
-    def _long3(self, value=(0,0,0), name='integer1'):
+    def _long3(self, value=(0,0,0), name='integer1', constant=False):
         """
         Creates a vector numeric integer using a network node.
         """        
         return self._number3(value=value,
                              name=name,
-                             at='long')    
+                             at='long',
+                            constant=constant)    
     
     
-    def _double(self, value=0.0, name='float1'):
+    def _double(self, value=0.0, name='float1', constant=False):
         """
         Creates a single numeric float using a network node.
         """        
         return self._number(value=value,
                             name=name,
-                            at='double')
+                            at='double',
+                            constant=constant)
     
     
-    def _double3(self, value=(0.,0.,0.), name='vector1'):
+    def _double3(self, value=(0.,0.,0.), name='vector1', constant=False):
         """
         Creates a vector numeric float using a network node.
         """        
         return self._number3(value=value,
                             name=name,
-                            at='double')    
+                            at='double',
+                            constant=constant)    
 
     
     
@@ -1571,17 +1726,17 @@ class Expression(object):
             
             # multiply
             if op == '*':
-                node = self._createNode('multiplyDivide', ss=(not self.debug), n='multiply1')
+                node = self._createNode('multiplyDivide', ss=True, n='multiply1')
                 mc.setAttr('%s.operation' % node, 1)
 
             # divide
             elif op == '/':
-                node = self._createNode('multiplyDivide', ss=(not self.debug), n='divide1')
+                node = self._createNode('multiplyDivide', ss=True, n='divide1')
                 mc.setAttr('%s.operation' % node, 2)
 
             # power
             elif op == '**':
-                node = self._createNode('multiplyDivide', ss=(not self.debug), n='exponent1')
+                node = self._createNode('multiplyDivide', ss=True, n='exponent1')
                 mc.setAttr('%s.operation' % node, 3)
 
             # floor division
@@ -1640,17 +1795,17 @@ class Expression(object):
 
             # plus
             if op == '+':
-                node = self._createNode('plusMinusAverage', ss=(not self.debug), name='addition1')
+                node = self._createNode('plusMinusAverage', ss=True, name='addition1')
                 mc.setAttr('%s.operation' % node, 1)
     
             # minus
             elif op == '-':
-                node = self._createNode('plusMinusAverage', ss=(not self.debug), name='subtraction1')
+                node = self._createNode('plusMinusAverage', ss=True, name='subtraction1')
                 mc.setAttr('%s.operation' % node, 2)
     
             # average
             elif op == 'avg':
-                node = self._createNode('plusMinusAverage', ss=(not self.debug), name='average1')
+                node = self._createNode('plusMinusAverage', ss=True, name='average1')
                 mc.setAttr('%s.operation' % node, 3)
     
             else:
@@ -1746,7 +1901,7 @@ class Expression(object):
             raise Exception('inverse() requires 1 input, given: %s' % items)
     
         if self._isMatrixAttr(items[0]):
-            node = self._createNode('inverseMatrix', ss=(not self.debug))
+            node = self._createNode('inverseMatrix', ss=True)
             self._connectAttr(items[0], '%s.inputMatrix' % node)
             return '%s.outputMatrix' % node
         else:
@@ -1767,7 +1922,7 @@ class Expression(object):
         if len(items) != 1:
             raise Exception('rev() requires 1 input, given: %s' % items)
     
-        node = self._createNode('reverse', ss=(not self.debug))
+        node = self._createNode('reverse', ss=True)
         self._connectAttr(items[0], '%s.input' % node)
     
         return '%s.output' % node    
@@ -1974,7 +2129,7 @@ class Expression(object):
         if len(items) != 2:
             raise Exception('clamp requires 2 inputs, given: %s' % items)
     
-        node = self._createNode('distanceBetween', ss=(not self.debug))
+        node = self._createNode('distanceBetween', ss=True)
     
         if self._isMatrixAttr(items[0]):
             self._connectAttr(items[0], '%s.inMatrix1' % node)
@@ -2045,7 +2200,7 @@ class Expression(object):
             raise Exception('choice requires minimum 2 inputs, given: %s' % items)
     
         # create choice node
-        node = self._createNode('choice', ss=(not self.debug))
+        node = self._createNode('choice', ss=True)
     
         # plug selector
         if not items[0] in [None, 'None']:
@@ -2098,7 +2253,7 @@ class Expression(object):
         if len(items) != 2:
             raise Exception('%s requires 2 inputs, given: %s' % (name, items))
     
-        node = self._createNode('vectorProduct', ss=(not self.debug))
+        node = self._createNode('vectorProduct', ss=True)
         mc.setAttr('%s.operation' % node, op)
         mc.setAttr('%s.normalizeOutput' % node, normalize)
     
@@ -2671,13 +2826,13 @@ class Expression(object):
             elif not self._isQuatAttr(item):
                 raise Exception('%s requires quaternions, given: %s' % (quat_node, items))
     
-        node = self._createNode(quat_node, ss=(not self.debug))
+        node = self._createNode(quat_node, ss=True)
         if sequential:
             self._connectAttr(items[0], '%s.input1Quat' % node)
             self._connectAttr(items[1], '%s.input2Quat' % node)
     
             for item in items[2:]:
-                node_ = self._createNode(quat_node, ss=(not self.debug))
+                node_ = self._createNode(quat_node, ss=True)
                 self._connectAttr('%s.outputQuat' % node, '%s.input1Quat' % node_)
                 self._connectAttr(item, '%s.input2Quat' % node_)
                 node = node_
@@ -2768,7 +2923,7 @@ class Expression(object):
         if len(items) > 2:
             raise Exception('mag requires max 2 inputs, given: %s' % items)
     
-        node = self._createNode('eulerToQuat', ss=(not self.debug))
+        node = self._createNode('eulerToQuat', ss=True)
         self._connectAttr(items[0], '%s.inputRotate' % node)
         
         if len(items) == 2:
@@ -2856,7 +3011,7 @@ class Expression(object):
             else:
                 weights.append(item)
     
-        node = self._createNode('quatSlerp', ss=(not self.debug))
+        node = self._createNode('quatSlerp', ss=True)
     
         self._connectAttr(quats[0], '%s.input1Quat' % (node))
         self._connectAttr(quats[1], '%s.input2Quat' % (node))
@@ -2896,7 +3051,7 @@ class Expression(object):
                 raise Exception('%s requires matrices, given: %s' % (matrix_node, items))
     
         # process item
-        node = self._createNode(matrix_node, ss=(not self.debug))
+        node = self._createNode(matrix_node, ss=True)
         self._connectAttr(items[0], '%s.inputMatrix' % node)
     
         return '%s.%s' % (node, output_attr)
@@ -2958,7 +3113,7 @@ class Expression(object):
     
         items = self._getPlugs(items, compound=False)
     
-        M = self._createNode('fourByFourMatrix', ss=(not self.debug))
+        M = self._createNode('fourByFourMatrix', ss=True)
         for i in range(len(items)):
             for j in range(len(items[i])):
                 if not items[i][j]  in [None, 'None']:
@@ -2985,7 +3140,7 @@ class Expression(object):
             raise Exception('matrix composer accepts up to 5 inputs, given: %s' % items)
     
     
-        node = self._createNode('composeMatrix', ss=(not self.debug))
+        node = self._createNode('composeMatrix', ss=True)
         plugs0 = ['inputTranslate', 'inputRotate', 'inputScale', 'inputShear', 'inputRotateOrder']
         plugs1 = ['inputTranslate', 'inputQuat',   'inputScale', 'inputShear', 'inputRotateOrder']
         
@@ -3031,7 +3186,7 @@ class Expression(object):
             if not self._isMatrixAttr(item):
                 raise Exception('matrixMult requires matrices, given: %s' % items)
     
-        node = self._createNode('multMatrix', ss=(not self.debug))
+        node = self._createNode('multMatrix', ss=True)
     
         for item in items:
             self._connectAttr(item, '%s.matrixIn' % node)
@@ -3057,7 +3212,7 @@ class Expression(object):
             if not self._isMatrixAttr(item):
                 raise Exception('matrixAdd requires matrices, given: %s' % items)
     
-        node = self._createNode('addMatrix', ss=(not self.debug))
+        node = self._createNode('addMatrix', ss=True)
     
         for item in items:
             self._connectAttr(item, '%s.matrixIn' % node)
@@ -3115,7 +3270,7 @@ class Expression(object):
         elif matrix_count > 1 and weight_count != matrix_count:
             raise Exception('matrixWeightedAdd invalid inputs, given: %s' % items)
     
-        node = self._createNode('wtAddMatrix', ss=(not self.debug))
+        node = self._createNode('wtAddMatrix', ss=True)
     
         for i in range(matrix_count):
             self._connectAttr(matrices[i], '%s.wtMatrix.matrixIn' % (node))
@@ -3140,7 +3295,7 @@ class Expression(object):
         if len(items) != 2:
             raise Exception('vectorMatrixProduct requires 2 inputs, given: %s' % items)
     
-        node = self._createNode('vectorProduct', ss=(not self.debug))
+        node = self._createNode('vectorProduct', ss=True)
         mc.setAttr('%s.operation' % node, 3)
         mc.setAttr('%s.normalizeOutput' % node, 0)
     
@@ -3177,7 +3332,7 @@ class Expression(object):
         if len(items) != 2:
             raise Exception('vectorMatrixProductNormalized requires 2 inputs, given: %s' % items)
     
-        node = self._createNode('vectorProduct', ss=(not self.debug))
+        node = self._createNode('vectorProduct', ss=True)
         mc.setAttr('%s.operation' % node, 3)
         mc.setAttr('%s.normalizeOutput' % node, 1)
     
@@ -3214,7 +3369,7 @@ class Expression(object):
         if len(items) != 2:
             raise Exception('pointMatrixProduct requires 2 inputs, given: %s' % items)
     
-        node = self._createNode('vectorProduct', ss=(not self.debug))
+        node = self._createNode('vectorProduct', ss=True)
         mc.setAttr('%s.operation' % node, 4)
         mc.setAttr('%s.normalizeOutput' % node, 0)
     
@@ -3255,7 +3410,7 @@ class Expression(object):
             if not self._isMatrixAttr(item):
                 raise Exception('matrixAdd requires matrices, given: %s' % items)
     
-        node = self._createNode('addMatrix', ss=(not self.debug))
+        node = self._createNode('addMatrix', ss=True)
     
         for item in items:
             self._connectAttr(item, '%s.matrixIn' % node)
@@ -3313,7 +3468,7 @@ class Expression(object):
         elif matrix_count > 1 and weight_count != matrix_count:
             raise Exception('matrixWeightedAdd invalid inputs, given: %s' % items)
     
-        node = self._createNode('wtAddMatrix', ss=(not self.debug))
+        node = self._createNode('wtAddMatrix', ss=True)
     
         for i in range(matrix_count):
             self._connectAttr(matrices[i], '%s.wtMatrix.matrixIn' % (node))
@@ -3340,7 +3495,7 @@ class Expression(object):
             if not self._isMatrixAttr(item):
                 raise Exception('matrixMult requires matrices, given: %s' % items)
     
-        node = self._createNode('multMatrix', ss=(not self.debug))
+        node = self._createNode('multMatrix', ss=True)
     
         for item in items:
             self._connectAttr(item, '%s.matrixIn' % node)
@@ -3362,7 +3517,7 @@ class Expression(object):
         if len(items) != 2:
             raise Exception('pointMatrixProductNormalized requires 2 inputs, given: %s' % items)
     
-        node = self._createNode('vectorProduct', ss=(not self.debug))
+        node = self._createNode('vectorProduct', ss=True)
         mc.setAttr('%s.operation' % node, 4)
         mc.setAttr('%s.normalizeOutput' % node, 1)
     
@@ -3388,6 +3543,36 @@ class Expression(object):
 
 
 # TODO
+# - input/output attrs + container packaging
 # - load/save
 # - test everything
+#VAL = 'pSphere1.t'
+#MIN = [5,0,0]
+#MAX = [10,10,10]
+#RESULT = 'pCube1.t'
 
+#exp = '''
+#$delta  = ($VAL - $MIN)
+#$range  = ($MAX - $MIN)
+#$test   = ($delta/$range)
+#$ratio  = 1 - exp(-1 * abs($test))
+#$result = $MIN + ($ratio * $range * sign($test))
+#$RESULT = if ($result<$MIN, $VAL, $result)
+#'''
+
+
+##e = Expression()
+##print e(exp, container='fadeOutAwesomeness', variables=locals())
+#e = Expression()
+#e('pCube2.t = abs(pSphere1.t)')
+
+
+
+#e = Expression(debug=False, variables=locals())
+#e('$items[0].t = lerp($items[1].t, $items[2].t, $items[3].blend)', variables=locals())
+#e('$items[0].s = elerp($items[1].s, $items[2].s, $items[3].blend)', variables=locals())
+#print e('pCube3.t = slerp(pCube1.t, pCube2.t, pCube4.blend)')
+
+#values = ['pCube4.choice','pCube1.wm','pCube2.wm','pCube3.wm']
+#e = Expression(debug=False, variables=locals())
+#e('pSphere1.t = choice($values)')
