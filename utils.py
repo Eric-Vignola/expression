@@ -1,4 +1,3 @@
-
 import cmd
 import math
 import random
@@ -3774,4 +3773,5 @@ class Expression(object):
             self._connectAttr(tokens[1], '%s.input1' % node)
     
         return '%s.output' % node
+
 
