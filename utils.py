@@ -1,3 +1,5 @@
+
+
 import cmd
 import math
 import random
@@ -13,6 +15,7 @@ from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, de
 
 ParserElement.enablePackrat() # speeds up parser
 
+__version__ = 1.0
 
 CONDITION_OPERATORS = {'==': 0, '!=': 1, '>': 2, '>=': 3, '<': 4, '<=': 5}
 BUILTIN_VARIABLES   = {'e':   math.e,
