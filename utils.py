@@ -133,7 +133,7 @@ class Expression(object):
 
 
 
-    def __call__(self, expression, name=None, variables=None, container=None):
+    def __call__(self, expression, name=None, variables=None, container=None, select=False):
         """
         Evaluates the stored expression and generates the node graph.
     
@@ -147,7 +147,12 @@ class Expression(object):
         self.setVariables(variables)
         self.setContainer(container)
         
-        return self.eval()
+        result = self.eval()
+        
+        if select:
+            self.select()
+            
+        return result
         
         
     #def __str__(self):
@@ -159,6 +164,11 @@ class Expression(object):
         
     #def __repr__(self):
         #return type(self).__name__ + '("' + '\n'.join(self.expression) + '")'
+
+
+    def select(self):
+        mc.select(self.nodes, r=True)
+
 
 
     def setContainer(self, container=None):
@@ -222,6 +232,11 @@ class Expression(object):
             >>> exp.setExpression('pCube1.t = pCube2.t * 2')
             >>> exp.eval()
         """    
+        
+        # clear constants if node has been deleted
+        if self.constant and not mc.objExists(self.constant):
+            self.constant  = None
+            self.constants = {}
         
         # test to make sure expression brackets are valid
         expression = self.expression[-1]
@@ -407,7 +422,7 @@ class Expression(object):
         
         res = tokens[0][-1]
         for val in tokens[0][-3::-2]:
-            res = self.power([val, res]).s
+            res = self.power([val, res])
             
         return res
     
@@ -416,43 +431,48 @@ class Expression(object):
         """ Evaluate expressions with a leading + or - sign """
         
         res = tokens[0][1]
-        
-        if self.consolidate:
-            if self.constants:
-                inv_map = {v: k for k, v in self.constants.iteritems()}
+
+        # !!!!!!!! BUG !!!!!!!!! #
+        # Attempting to save a constant but doesn't work in the case of:
+        # "1 - some_function(-1 * some_function(some_value))" because the 
+        # first number is created without a connection and -1 is seen after
+        # causing a the initial unconnected (but correct) attribute to be flipped
+        #if self.consolidate:
+            #if self.constants:
+                #inv_map = {v: k for k, v in self.constants.iteritems()}
                 
-                # is this a mapped constant?
-                if res in inv_map:
+                ## is this a mapped constant?
+                #if res in inv_map:
 
-                    # is it already connected to something?
-                    if not mc.listConnections(res):
+                    ## is it already connected to something?
+                    #if not mc.listConnections(res):
 
-                        # if not, this is a first instance of an _evalSignOp
-                        # we can hack it and skip the multiplication step
-                        val = mc.getAttr(res)
-                        neg = -1 * val                        
+                        ## if not, this is a first instance of an _evalSignOp
+                        ## we can hack it and skip the multiplication step
+                        #val = mc.getAttr(res)
+                        #neg = -1 * val                        
                         
-                        # is the negated value already in memory?
-                        if neg in self.constants:
+                        ## is the negated value already in memory?
+                        #if neg in self.constants:
                             
-                            # unfortunately this will leave a gap in the multi array
-                            return self.constants[neg]
+                            ## unfortunately this will leave a gap in the multi array
+                            #return self.constants[neg]
                         
-                        # replace the value in self.constants
-                        mc.setAttr(res, neg) # swap + for -
-                        self.constants[neg] = self.constants.pop(val)
+                        ## replace the value in self.constants
+                        #mc.setAttr(res, neg) # swap + for -
+                        #self.constants[neg] = self.constants.pop(val)
                     
-                        return self.constants[neg]
+                        #return self.constants[neg]
                     
         if tokens[0][0] == '-':
-            res = self.mult([self._long(-1), res])
+            res = self.mult([self._long(-1, constant=True), res])
             
         return res
     
     
     def _evalAssignOp(self, tokens):
         """ Used for expression variable assignment and connection to nodes. """
-        print 'here'
+        #print 'here'
         dst = tokens[0][:-2]
         src = tokens[0][-1]
         op  = tokens[0][-2]
@@ -479,6 +499,7 @@ class Expression(object):
     # TODO
     # Element evaluation can be cleaned up, and could support lists properly
     def _evalElementOp(self, tokens):
+        
         """ Evaluates a given expression element. """
 
         def isfloat(x):
@@ -497,7 +518,6 @@ class Expression(object):
         # private vars always supercede public.
         variables = self.variables.copy()
         variables.update(self.private)               
-
         
         # is element None?
         if tokens[0] == 'None':
@@ -528,11 +548,9 @@ class Expression(object):
         elif variables and tokens[0].startswith('$'): 
             var, index, attr = self._splitVariable(tokens[0])
 
-            
             # is the variable declared?
             values = None
             if var in variables:
-
                 values = deepcopy(variables[var])
                 
                 # is it a list?
@@ -552,7 +570,7 @@ class Expression(object):
                         
                         # is it a vector?
                         if len(values) == 3:
-                            return self._double3(values)
+                            return self._double3(values, constant=True)
                         
                         # is it a 16 element 4x4 matrix?
                         if len(values) == 16:
@@ -566,7 +584,7 @@ class Expression(object):
                 # are we overriding attributes?
                 if attr:
                     for i,v in enumerate(values):
-                        values[i] = '%s.%s'%(v,attr)
+                        values[i] = '%s.%s'%(v.split('.')[0],attr)
                 
          
                 for i,v in enumerate(values):
@@ -815,7 +833,7 @@ class Expression(object):
         # if we have multiple entries, test if they're all compount types
         # gracefully fail if there's something weird, like a '=' for conditions
         try:
-            if all([self._isCompoundAttr(x) for x in query]):
+            if compound and all([self._isCompoundAttr(x) for x in query]):
                 return [[self._listPlugs(x)[0]] for x in query]
         except:
             pass
@@ -1057,7 +1075,17 @@ class Expression(object):
             if self.debug:
                 print ('connecting: %s ---> %s'%(src[i],dst[i]))
                 
-            mc.connectAttr(src[i], dst[i], f=True)    
+            mc.connectAttr(src[i], dst[i], f=True)
+            
+            
+            # include any conversion nodes into the container
+            if self.container:
+                try:
+                    unit_conversion_node = mc.listConnections(dst[i], s=True, d=False, type='unitConversion')[0]
+                    if unit_conversion_node:
+                        mc.container(self.container, edit=True, addNode=unit_conversion_node)
+                except:
+                    pass      
     
     
     def _createNode(self, *args, **kwargs):
@@ -1736,7 +1764,8 @@ class Expression(object):
     
     
     
-    # ----------------------------- NUMERICAL NODES ------------------------------ #    
+    # ----------------------------- NUMERICAL NODES ------------------------------ #  
+    
     def _number(self, value=0, at='double', name='number1', constant=False):
         """
         Creates a single numeric value using a network node (default float).
@@ -1884,7 +1913,6 @@ class Expression(object):
     
         if not mat0 and not mat1:
             
-            
             # multiply
             if op == '*':
                 node = self._createNode('multiplyDivide', ss=True, n='multiply1')
@@ -1924,8 +1952,7 @@ class Expression(object):
             self._connectAttr(tokens[1], '%s.input2' % node)
     
             # Force single output if both inputs are single numerics
-            counts = self._getPlugs(tokens, compound=False)
-            if all(len(x) == 1 for x in counts):
+            if all(not self._isCompoundAttr(x) for x in tokens):
                 return '%s.outputX' % node
     
             return '%s.output' % node
@@ -2009,7 +2036,6 @@ class Expression(object):
         """
         Multiplies two or more items
         """
-        print tokens
         return self._multiplyDivide('*', tokens)
                 
     @parsedcommand            
@@ -2213,7 +2239,7 @@ class Expression(object):
             --------
             >>> exp(pCube1.tx)
         """
-        return self.power([self._double(math.e), tokens[0]])
+        return self.power([self._double(math.e, constant=True), tokens[0]])
     
     
     @parsedcommand
@@ -2231,7 +2257,11 @@ class Expression(object):
         if len(tokens) != 1:
             raise Exception('sign() requires 1 input, given: %s' % tokens)
     
-        return self.cond([tokens[0], '<', self._long(0), self._long(-1), self._long(1)])    
+        return self.cond([tokens[0], 
+                          '<', 
+                          self._long(0, constant=True), 
+                          self._long(-1, constant=True), 
+                          self._long(1, constant=True)])    
     
     
     @parsedcommand
@@ -2545,23 +2575,23 @@ class Expression(object):
         
         exp = Expression(container=container, debug=self.debug)
         results = []
-        for i in range(len(tokens[0])):
-    
-            plug = tokens[0][i]
+        for i in range(len(tokens)):
+            plug = tokens[i]
+
             if modulo:
                 plug = exp(str(plug) + '%' + str(modulo))[0]
-    
+
             node = exp._createNode('remapValue', ss=self.debug)
             self._connectAttr(plug, '%s.inputValue' % node)
-    
+
             for j in range(len(x)):
                 mc.setAttr('%s.value[%s].value_Position' % (node, j), x[j])
                 mc.setAttr('%s.value[%s].value_FloatValue' % (node, j), y[j])
                 mc.setAttr('%s.value[%s].value_Interp' % (node, j), 2)
-    
+
             results.append('%s.outValue' % node)
     
-    
+
         result = None
         if len(results) == 1:
             result = results[0]
@@ -2577,7 +2607,7 @@ class Expression(object):
         else:
             raise Exception('trigonometric functions ony supports 1 or 3 plugs')
         
-        
+
 
         self.nodes.extend(exp.getNodes())           
         
@@ -3209,7 +3239,10 @@ class Expression(object):
         """
     
         # make sure given items are lists, tuples or sets
-        if not isinstance(tokens, (list, tuple, set)):
+        if isinstance(tokens, ParseResults):
+            tokens = tokens.asList()            
+            
+        elif not isinstance(tokens, (list, tuple, set)):
             tokens = [tokens]
     
         # test input count
@@ -3349,7 +3382,7 @@ class Expression(object):
             raise Exception('matrix constructor accepts up to 4 inputs, given: %s' % tokens)
     
         tokens = self._getPlugs(tokens, compound=False)
-    
+        
         M = self._createNode('fourByFourMatrix', ss=True)
         for i in range(len(tokens)):
             for j in range(len(tokens[i])):
@@ -3358,6 +3391,8 @@ class Expression(object):
                     self._connectAttr(tokens[i][j], plug)
     
         return '%s.output' % M
+    
+
     
     @parsedcommand
     def matrixCompose(self, tokens):
@@ -3498,7 +3533,7 @@ class Expression(object):
         if weight_count == 0:
             w = 1. / matrix_count
             for _ in matrices:
-                weights.append(self._double(w))
+                weights.append(self._double(w, constant=True))
     
         elif matrix_count == 2 and weight_count == 1:
             weights.append(weights[0])
@@ -3696,7 +3731,7 @@ class Expression(object):
         if weight_count == 0:
             w = 1. / matrix_count
             for _ in matrices:
-                weights.append(self._double(w))
+                weights.append(self._double(w, constant=True))
     
         elif matrix_count == 2 and weight_count == 1:
             weights.append(weights[0])
@@ -3776,5 +3811,26 @@ class Expression(object):
             self._connectAttr(tokens[1], '%s.input1' % node)
     
         return '%s.output' % node
+
+
+## exponent range example    
+#VAL = 'pSphere1.t'
+#MIN = 0
+#MAX = 10
+#RESULT = 'pCube1.t'
+
+#exp = '''
+#$delta  = ($VAL - $MIN)
+#$range  = ($MAX - $MIN)
+#$test   = ($delta/$range)
+#$ratio  = 1 - exp(-1 * abs($test))
+#$result = $MIN + ($ratio * $range * sign($test))
+##$RESULT = if ($result<$MIN, $VAL, $result)
+#'''
+
+
+#e = Expression(consolidate=True, debug=True)
+#print e(exp, variables=locals())
+
 
 
