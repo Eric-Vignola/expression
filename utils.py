@@ -2566,7 +2566,6 @@ class Expression(object):
     
     
     # ------------------------- TRIGONOMETRIC FUNCTIONS -------------------------- # 
-
     def _trigonometry(self, tokens, x, y, modulo=None, container=None):
         """
         Sets up a ramapValue node for sine/cosine trigonometric functions.
@@ -2612,6 +2611,36 @@ class Expression(object):
         self.nodes.extend(exp.getNodes())           
         
         return result
+        
+        
+        
+    def _trigonometry2(self, tokens, name, convert_value, output):
+        
+        
+        tokens = self._getPlugs(tokens, compound=False)
+        if not len(tokens) in [1,3]:
+            raise Exception('trigonometric functions ony supports 1 or 3 plugs')
+        
+        nodes = []
+        exp = Expression(container=name, debug=self.debug)
+                   
+        for token in tokens:
+            node    = exp._createNode('eulerToQuat', ss=False)
+            result  = exp('%s.inputRotateX = %s*%s'%(node, token, convert_value))[0]
+            nodes.append('%s.%s'%(node,output))
+        
+        # make result a vector if there are 3 outputs
+        result = nodes[0]
+        if len(nodes) == 3:
+            vec = exp._double3()
+            for i, xyz in enumerate(['X', 'Y', 'Z']):
+                mc.connectAttr(nodes[i], '%s%s' % (vec, xyz), f=True)
+                
+            result = vec
+ 
+ 
+        self.nodes.extend(exp.getNodes())           
+        return result      
         
         
     @parsedcommand    
@@ -2685,70 +2714,107 @@ class Expression(object):
         """
         return self._trigonometry(tokens, x=[1, 0], y=[0, 1], container='easeOut')
 
+
+
     @parsedcommand
     def sin(self, tokens):
-        """ 
-        sin(<input>)
         
-            Creates a sine function (in radians).
-        
-            Examples
-            --------
-            >>> sin(pCube1.tx) # returns a network which passes pCube1's translateX into a sine function.
-            >>> sin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a sine functions.
-        """
-        x = [(-5 * math.pi / 2), (5 * math.pi / 2), (-3 * math.pi / 2), (-1 * math.pi / 2), (math.pi / 2), (3 * math.pi / 2)]
-        y = [-1, 1, 1, -1, 1, -1]
-        return self._trigonometry(tokens, x, y, modulo=2 * math.pi, container='sin1')
-
+        return self._trigonometry2(tokens, 
+                                  name='sin1', 
+                                  convert_value=(360./math.pi), 
+                                  output='outputQuat.outputQuatX')
+    
     @parsedcommand
     def sind(self, tokens):
-        """ 
-        sind(<input>)
         
-            Creates a sine function (in degrees).
+        return self._trigonometry2(tokens, 
+                                  name='sind1', 
+                                  convert_value=2, 
+                                  output='outputQuat.outputQuatX')
+    
         
-            Examples
-            --------
-            >>> sind(pCube1.tx) # returns a network which passes pCube1's translateX into a sine function.
-            >>> sind(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a sine functions.
-        """
-        x = [(-5 * 180. / 2), (5 * 180. / 2), (-3 * 180. / 2), (-1 * 180. / 2), (180. / 2), (3 * 180. / 2)]
-        y = [-1, 1, 1, -1, 1, -1]        
-        return self._trigonometry(tokens, x, y, modulo=2 * 180., container='sind1')
-
     @parsedcommand
     def cos(self, tokens):
-        """ 
-        cos(<input>)
         
-            Creates a cosine function (in radians).
-        
-            Examples
-            --------
-            >>> cos(pCube1.tx) # returns a network which passes pCube1's translateX into a cosine function.
-            >>> cos(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a cosine functions.
-        """
-    
-        x = [(-2 * math.pi), (2 * math.pi), (-1 * math.pi), 0, math.pi]
-        y = [1, 1, -1, 1, -1]
-        return self._trigonometry(tokens, x, y, modulo=2 * math.pi, container='cos1')    
+        return self._trigonometry2(tokens, 
+                                  name='cos1', 
+                                  convert_value=(360./math.pi), 
+                                  output='outputQuat.outputQuatW')
     
     @parsedcommand
     def cosd(self, tokens):
-        """ 
-        cosd(<input>)
         
-            Creates a cosine function (in degrees).
+        return self._trigonometry2(tokens, 
+                                  name='cosd1', 
+                                  convert_value=2,
+                                  output='outputQuat.outputQuatW')    
+    
+    
+    #@parsedcommand
+    #def sin(self, tokens):
+        #""" 
+        #sin(<input>)
         
-            Examples
-            --------
-            >>> cosd(pCube1.tx) # returns a network which passes pCube1's translateX into a cosine function.
-            >>> cosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a cosine functions.
-        """
-        x = [(-2 * 180.), (2 * 180.), (-1 * 180.), 0, 180.]
-        y = [1, 1, -1, 1, -1]
-        return self._trigonometry(tokens, x, y, modulo=2 * 180., container='cosd1')   
+            #Creates a sine function (in radians).
+        
+            #Examples
+            #--------
+            #>>> sin(pCube1.tx) # returns a network which passes pCube1's translateX into a sine function.
+            #>>> sin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a sine functions.
+        #"""
+        #x = [(-5 * math.pi / 2), (5 * math.pi / 2), (-3 * math.pi / 2), (-1 * math.pi / 2), (math.pi / 2), (3 * math.pi / 2)]
+        #y = [-1, 1, 1, -1, 1, -1]
+        #return self._trigonometry(tokens, x, y, modulo=2 * math.pi, container='sin1')
+
+
+    #@parsedcommand
+    #def sind(self, tokens):
+        #""" 
+        #sind(<input>)
+        
+            #Creates a sine function (in degrees).
+        
+            #Examples
+            #--------
+            #>>> sind(pCube1.tx) # returns a network which passes pCube1's translateX into a sine function.
+            #>>> sind(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a sine functions.
+        #"""
+        #x = [(-5 * 180. / 2), (5 * 180. / 2), (-3 * 180. / 2), (-1 * 180. / 2), (180. / 2), (3 * 180. / 2)]
+        #y = [-1, 1, 1, -1, 1, -1]        
+        #return self._trigonometry(tokens, x, y, modulo=2 * 180., container='sind1')
+
+    #@parsedcommand
+    #def cos(self, tokens):
+        #""" 
+        #cos(<input>)
+        
+            #Creates a cosine function (in radians).
+        
+            #Examples
+            #--------
+            #>>> cos(pCube1.tx) # returns a network which passes pCube1's translateX into a cosine function.
+            #>>> cos(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a cosine functions.
+        #"""
+    
+        #x = [(-2 * math.pi), (2 * math.pi), (-1 * math.pi), 0, math.pi]
+        #y = [1, 1, -1, 1, -1]
+        #return self._trigonometry(tokens, x, y, modulo=2 * math.pi, container='cos1')    
+    
+    #@parsedcommand
+    #def cosd(self, tokens):
+        #""" 
+        #cosd(<input>)
+        
+            #Creates a cosine function (in degrees).
+        
+            #Examples
+            #--------
+            #>>> cosd(pCube1.tx) # returns a network which passes pCube1's translateX into a cosine function.
+            #>>> cosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a cosine functions.
+        #"""
+        #x = [(-2 * 180.), (2 * 180.), (-1 * 180.), 0, 180.]
+        #y = [1, 1, -1, 1, -1]
+        #return self._trigonometry(tokens, x, y, modulo=2 * 180., container='cosd1')   
     
     
     @parsedcommand
@@ -3813,7 +3879,7 @@ class Expression(object):
         return '%s.output' % node
 
 
-## exponent range example    
+    
 #VAL = 'pSphere1.t'
 #MIN = 0
 #MAX = 10
@@ -3834,3 +3900,37 @@ class Expression(object):
 
 
 
+
+
+#code = '''
+
+#$SINE   = sind(HEART_PULSE.pulse*360) * HEART_PULSE.pulseScale
+#$COSINE = cosd(HEART_PULSE.pulse*360) * HEART_PULSE.pulseScale
+#$AIM    = vector($COSINE-HEART_PULSE.pulseScale,$SINE,1)
+#$MAG    = mag($AIM)
+#$Z      = $AIM/$MAG
+
+#$Y      = vector(0,1,0)
+#$X      = crossNormalized($Y, $Z)
+#$Y      = crossNormalized($Z, $X)
+
+#$M      = matrix($X, $Y, $Z)
+
+
+#$remap  = vector($M.outputRotateZ, $M.outputRotateX, $M.outputRotateY)
+#HEART_PULSE.input = sum($remap, HEART_PULSE.r)
+
+#'''
+
+
+#e = Expression()
+#M = e(code)
+#mc.select(M)
+
+
+
+
+
+#exp = Expression(debug=True)
+#exp('pCube2.t = sind(pCube1.t)')
+#exp('pCube3.t = sintest(pCube1.t)')
