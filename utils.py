@@ -2261,7 +2261,26 @@ class Expression(object):
                           '<', 
                           self._long(0, constant=True), 
                           self._long(-1, constant=True), 
-                          self._long(1, constant=True)])    
+                          self._long(1, constant=True)])   
+    
+    
+    @parsedcommand
+    def sqrt(self, tokens):
+        """ 
+        sqrt(<input>)
+        
+            Returns the square root of a value. (sam as doing x ** 0.5)
+        
+            Examples
+            --------
+            >>> sqrt(pCube1.t)
+            >>> sqrt(pCube1.tx)
+        """
+        if len(tokens) != 1:
+            raise Exception('sign() requires 1 input, given: %s' % tokens)
+    
+        return self.power([tokens[0], 
+                          self._double(0.5, constant=True)])        
     
     
     @parsedcommand
@@ -2816,153 +2835,172 @@ class Expression(object):
         #y = [1, 1, -1, 1, -1]
         #return self._trigonometry(tokens, x, y, modulo=2 * 180., container='cosd1')   
     
-    
+
+
     @parsedcommand
-    def acos(self, tokens):
+    def asind(self, tokens):
         """ 
-        acos(<input>)
+        asin(<input>)
         
-            Approximates an arc cosine function (in radians).
+            Calculates an arc sine function (in degrees).
         
             Examples
             --------
-            >>> acos(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine approximation function.
-            >>> acos(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine approximation functions.
-        """
-    
-        # https://developer.download.nvidia.com/cg/acos.html
-        tokens = self._getPlugs(tokens, compound=False)
-        result = []
+            >>> asin(pCube1.tx) # returns a network which passes pCube1's translateX into an arc sine function.
+            >>> asin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc sine  functions.
+        """        
         
-        exp = Expression(container='acos1', 
-                         debug=self.debug)
-         
-        for plug in tokens:
+        tokens = self._getPlugs(tokens, compound=False)
+        if not len(tokens) in [1,3]:
+            raise Exception('trigonometric functions ony supports 1 or 3 plugs')
+        
+        nodes = []
+        exp = Expression(container='asind1', debug=self.debug)
+                   
+        for token in tokens:
+            node = exp._createNode('angleBetween', ss=False)
+            mc.setAttr('%s.vector1'%node,0,0,0)
+            mc.setAttr('%s.vector2'%node,0,0,0)
+            
+            angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
+            
             
             code = '''
-            $negate = if(%s<0,1,0)
-            $x   = abs(%s)
-            $ret = -0.0187293
-            $ret = $ret + 0.0742610
-            $ret = $ret * $x
-            $ret = $ret - 0.2121144
-            $ret = $ret * $x
-            $ret = $ret + 1.5707288
-            $ret = $ret * (1.0-$x)**0.5
-            $ret = $ret - 2 * $negate * $ret
-            $negate * 3.14159265358979 + $ret
-            ''' % (plug, plug)
-    
-            # pack in it's own container to reduce the clutter
-            result.append(exp(code))
             
+            # see asin under https://www.chadvernon.com/blog/trig-maya/
             
-        # presume it's a vector if multiple results
-        result = self._flatten_lists(result)
-        if len(result) > 1:
-            result = exp('vector($result)\n', variables=locals())
+            $b = (1.0 - $token*$token)**0.5
+            $node.vector1X = $b
+            $node.vector1Y = $token
+            
+            $node.vector2X = if (abs($token) == 1.0, 1.0, $b)
+            
+            if ($token < 0, -$angle, $angle)
+            '''
+            
+            result  = exp(code, variables=locals())[0]
+            nodes.append(result)
+        
+        # make result a vector if there are 3 outputs
+        result = nodes[0]
+        if len(nodes) == 3:
+            vec = exp._double3()
+            for i, xyz in enumerate(['X', 'Y', 'Z']):
+                mc.connectAttr(nodes[i], '%s%s' % (vec, xyz), f=True)
                 
-        self.nodes.extend(exp.getNodes())
+            result = vec
+ 
+        self.nodes.extend(exp.getNodes())           
         return result
-
-
+    
+    
 
     @parsedcommand
     def asin(self, tokens):
         """ 
         asin(<input>)
         
-            Approximates an arc sine function (in radians).
+            Calculates an arc sine function (in radians).
         
             Examples
             --------
             >>> asin(pCube1.tx) # returns a network which passes pCube1's translateX into an arc sine approximation function.
             >>> asin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc sine approximation functions.
         """
-    
-        # https://developer.download.nvidia.com/cg/asin.html
-        tokens = self._getPlugs(tokens, compound=False)
-        result = []
         
+    
+        # pack in it's own container to reduce the clutter
         exp = Expression(container='asin1', 
                          debug=self.debug)
-         
-        for plug in tokens:
-            
-            code = """
-            $negate = if(%s<0,1,0)
-            $x   = abs(%s)
-            $ret = -0.0187293
-            $ret = $ret * $x
-            $ret = $ret + 0.0742610
-            $ret = $ret * $x
-            $ret = $ret - 0.2121144
-            $ret = $ret * $x
-            $ret = $ret + 1.5707288
-            $ret = 3.14159265358979*0.5 - (1-$x)**0.5 * $ret
-            
-            $ret - 2 * $negate * $ret
-            """ % (plug, plug)
         
-            # pack in it's own container to reduce the clutter
-            result.append(exp(code))
-            
-            
-        # presume it's a vector if multiple results
-        result = self._flatten_lists(result)
-        if len(result) > 1:
-            result = exp('vector($result)\n', variables=locals())
-                
+        result = exp('radians(asind(%s))' % tokens[0])
         self.nodes.extend(exp.getNodes())
+        
         return result    
-        
-        
-        
 
+      
     @parsedcommand
     def acosd(self, tokens):
         """ 
         acosd(<input>)
         
-            Approximates an arc cosine function (in degrees).
+            Calculates an arc cosine function (in degrees).
         
             Examples
             --------
-            >>> acosd(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine approximation function.
-            >>> acosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine approximation functions.
+            >>> acosd(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine function.
+            >>> acosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine functions.
+        """
+        
+        tokens = self._getPlugs(tokens, compound=False)
+        if not len(tokens) in [1,3]:
+            raise Exception('trigonometric functions ony supports 1 or 3 plugs')
+        
+        nodes = []
+        exp = Expression(container='acosd1', debug=self.debug)
+                   
+        for token in tokens:
+            node = exp._createNode('angleBetween', ss=False)
+            mc.setAttr('%s.vector1'%node,0,0,0)
+            mc.setAttr('%s.vector2'%node,0,0,0)
+            
+            angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
+            
+            
+            code = '''
+            
+            # see acos under https://www.chadvernon.com/blog/trig-maya/
+            
+            $b = (1.0 - $token*$token)**0.5
+            $node.vector1Y = $b
+            $node.vector1X = $token
+            
+            $node.vector2X = if (abs($token) == 1.0, 1.0, $b)
+            
+            if ($token < 0, -$angle, $angle)
+            '''
+            
+            result  = exp(code, variables=locals())[0]
+            nodes.append(result)
+        
+        # make result a vector if there are 3 outputs
+        result = nodes[0]
+        if len(nodes) == 3:
+            vec = exp._double3()
+            for i, xyz in enumerate(['X', 'Y', 'Z']):
+                mc.connectAttr(nodes[i], '%s%s' % (vec, xyz), f=True)
+                
+            result = vec
+ 
+        self.nodes.extend(exp.getNodes())           
+        return result
+    
+    
+    @parsedcommand
+    def acos(self, tokens):
+        """ 
+        acos(<input>)
+        
+            Calculates an arc cosine function (in radians).
+        
+            Examples
+            --------
+            >>> asin(pCube1.tx) # returns a network which passes pCube1's translateX into an arc cosine approximation function.
+            >>> asin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc cosine approximation functions.
         """
         
     
         # pack in it's own container to reduce the clutter
-        exp = Expression(container='acosd1', 
+        exp = Expression(container='acos1', 
                          debug=self.debug)
         
-        result = exp('degrees(acos(%s))' % tokens[0])
+        result = exp('radians(acosd(%s))' % tokens[0])
         self.nodes.extend(exp.getNodes())
         
-        return result
+        return result            
     
     
-    
-    @parsedcommand
-    def asind(self, tokens):
-        """ 
-        asind(<input>)
-        
-            Approximates an arc sine function (in radians).
-        
-            Examples
-            --------
-            >>> asind(pCube1.tx) # returns a network which passes pCube1's translateX into an arc sine approximation function.
-            >>> asind(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc sine approximation functions.
-        """
-        exp = Expression(container='asind1', debug=self.debug)
-        result = exp('degrees(asin(%s))' % tokens[0])
-        self.nodes.extend(exp.getNodes())
-        
-        return result         
-    
-    
+
     @parsedcommand
     def tan(self, tokens):
         """ 
@@ -2981,15 +3019,13 @@ class Expression(object):
                          debug=self.debug)
         
         code = '''
-        $sin     = sin(%s)
-        $cos     = cos(%s)
-        $divtest = if($cos != 0, $cos, 1)
-        $tan     = $sin/$divtest
-        if($cos != 0, $tan, 16331239353195370)
+        $sin = sin(%s)
+        $cos = cos(%s)
+        if ($cos != 0, $sin/$cos, 0)
         ''' % (tokens[0], tokens[0])
 
         result = exp(code)
-        self.nodes.extend(e.getNodes())
+        self.nodes.extend(exp.getNodes())
         return result
 
         
@@ -2997,71 +3033,110 @@ class Expression(object):
     @parsedcommand
     def tand(self, tokens):
         """ 
-        tand(<input>)
+        tan(<input>)
         
             Approximates a tan function (in degrees).
         
             Examples
             --------
-            >>> tand(pCube1.tx) # returns a network which passes pCube1's translateX into a tan approximation function.
-            >>> tand(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a tan approximation functions.
+            >>> tan(pCube1.tx) # returns a network which passes pCube1's translateX into a tan function.
+            >>> tan(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into a tan functions.
         """
+    
+        # https://developer.download.nvidia.com/cg/tan.html
         exp = Expression(container='tand1', 
                          debug=self.debug)
         
         code = '''
-        $sin     = sind(%s)
-        $cos     = cosd(%s)
-        $divtest = if($cos != 0, $cos, 1)
-        $tan     = $sin/$divtest
-        if($cos != 0, $tan, 16331239353195370)
+        $sin = sind(%s)
+        $cos = cosd(%s)
+        if ($cos != 0, $sin/$cos, 0)
         ''' % (tokens[0], tokens[0])
-    
-        # pack in it's own container to reduce the clutter
+
         result = exp(code)
-        self.nodes.extend(e.getNodes)
-        return result    
+        self.nodes.extend(exp.getNodes())
+        return result
         
     
     
-    # TODO
-    #def _atan2(tokens):
-        #
-        # float2 atan2(float2 y, float2 x)
-        # {
-        #  float2 t0, t1, t2, t3, t4;
-        #
-        #  t3 = abs(x);
-        #  t1 = abs(y);
-        #  t0 = max(t3, t1);
-        #  t1 = min(t3, t1);
-        #  t3 = float(1) / t0;
-        #  t3 = t1 * t3;
-        #
-        #  t4 = t3 * t3;
-        #  t0 =         - float(0.013480470);
-        #  t0 = t0 * t4 + float(0.057477314);
-        #  t0 = t0 * t4 - float(0.121239071);
-        #  t0 = t0 * t4 + float(0.195635925);
-        #  t0 = t0 * t4 - float(0.332994597);
-        #  t0 = t0 * t4 + float(0.999995630);
-        #  t3 = t0 * t3;
-        #
-        #  t3 = (abs(y) > abs(x)) ? float(1.570796327) - t3 : t3;
-        #  t3 = (x < 0) ?  float(3.141592654) - t3 : t3;
-        #  t3 = (y < 0) ? -t3 : t3;
-        #
-        #  return t3;
-        # }    
+    
+    @parsedcommand
+    def atand(self, tokens):
+        """ 
+        atand(<input>)
+        
+            Calculates an arc tan function (in degrees).
+        
+            Examples
+            --------
+            >>> acosd(pCube1.tx) # returns a network which passes pCube1's translateX into an arc tan function.
+            >>> acosd(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc tan functions.
+        """
+        
+        tokens = self._getPlugs(tokens, compound=False)
+        if not len(tokens) in [1,3]:
+            raise Exception('trigonometric functions ony supports 1 or 3 plugs')
+        
+        nodes = []
+        exp = Expression(container='atand1', debug=self.debug)
+                   
+        for token in tokens:
+            node = exp._createNode('angleBetween', ss=False)
+            mc.setAttr('%s.vector1'%node,1,0,0)
+            mc.setAttr('%s.vector2'%node,1,0,0)
+            
+            angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
+            
+            
+            code = '''
+            
+            # see atan under https://www.chadvernon.com/blog/trig-maya/
+        
+            $node.vector1Y = $token            
+            if ($token < 0, -$angle, $angle)
+            
+            '''
+            
+            result  = exp(code, variables=locals())[0]
+            nodes.append(result)
+        
+        # make result a vector if there are 3 outputs
+        result = nodes[0]
+        if len(nodes) == 3:
+            vec = exp._double3()
+            for i, xyz in enumerate(['X', 'Y', 'Z']):
+                mc.connectAttr(nodes[i], '%s%s' % (vec, xyz), f=True)
+                
+            result = vec
+ 
+        self.nodes.extend(exp.getNodes())           
+        return result    
     
     
-    # TODO
-    #def _atan(tokens):
-        #
-        # float atan(float x) {
-        #    return _atan2(x, float(1));
-        # }    
-
+    
+    @parsedcommand
+    def atan(self, tokens):
+        """ 
+        atan(<input>)
+        
+            Calculates an arc tan function (in degrees).
+        
+            Examples
+            --------
+            >>> asin(pCube1.tx) # returns a network which passes pCube1's translateX into an arc tan approximation function.
+            >>> asin(pCube1.t)  # returns a network which passes pCube1's [tx, ty, tz] into an arc tan approximation functions.
+        """
+        
+    
+        # pack in it's own container to reduce the clutter
+        exp = Expression(container='atan1', 
+                         debug=self.debug)
+        
+        result = exp('radians(atand(%s))' % tokens[0])
+        self.nodes.extend(exp.getNodes())
+        
+        return result        
+    
 
 
 
@@ -3931,6 +4006,4 @@ class Expression(object):
 
 
 
-#exp = Expression(debug=True)
-#exp('pCube2.t = sind(pCube1.t)')
-#exp('pCube3.t = sintest(pCube1.t)')
+
