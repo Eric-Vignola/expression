@@ -10,7 +10,7 @@ from copy import deepcopy
 import maya.cmds as mc
 
 
-from pyparsing import Regex, SkipTo, Forward, Word, Combine, Literal, Optional, Group, ParseResults, ParserElement
+from pyparsing import OneOrMore, SkipTo, Forward, Word, Combine, Literal, Optional, Group, ParseResults, ParserElement
 from pyparsing import nums, alphas, alphanums, oneOf, opAssoc, infixNotation, delimitedList
 
 ParserElement.enablePackrat() # speeds up parser
@@ -81,7 +81,7 @@ class Expression(object):
                                             Optional(':') +
                                             Optional('-') +
                                             Optional(Word(nums)) + ']') + 
-                             Optional('.'+Word(alphanums) ) 
+                             Optional(OneOrMore('.'+Word(alphanums) ) ) 
                              ) # $pi, $list_of_nodes[:-2].t, $MESH.tx                             
                              
                              
@@ -96,7 +96,7 @@ class Expression(object):
         condition_operators = oneOf(' '.join(CONDITION_OPERATORS))
                       
         
-        node_attr = Combine( Word(alphanums + '_:') + '.' + Word(alphanums + '_[].') ) # pCube1.tx
+        node_attr = Combine( Word(alphanums + '_:') + OneOrMore('.' + Word(alphanums + '_[].') ) ) # pCube1.tx
         operand   = function | real | integer | node_attr | variable | None_var | condition_operators
         
         # use parse actions to attach EvalXXX constructors to sub-expressions
@@ -2862,7 +2862,7 @@ class Expression(object):
             mc.setAttr('%s.vector1'%node,0,0,0)
             mc.setAttr('%s.vector2'%node,0,0,0)
             
-            angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
+            #angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
             
             
             code = '''
@@ -2875,7 +2875,7 @@ class Expression(object):
             
             $node.vector2X = if (abs($token) == 1.0, 1.0, $b)
             
-            if ($token < 0, -$angle, $angle)
+            if ($token < 0, -$node.axisAngle.angle, $node.axisAngle.angle)
             '''
             
             result  = exp(code, variables=locals())[0]
@@ -2943,10 +2943,7 @@ class Expression(object):
             node = exp._createNode('angleBetween', ss=False)
             mc.setAttr('%s.vector1'%node,0,0,0)
             mc.setAttr('%s.vector2'%node,0,0,0)
-            
-            angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
-            
-            
+                        
             code = '''
             
             # see acos under https://www.chadvernon.com/blog/trig-maya/
@@ -2957,7 +2954,7 @@ class Expression(object):
             
             $node.vector2X = if (abs($token) == 1.0, 1.0, $b)
             
-            if ($token < 0, -$angle, $angle)
+            if ($token < 0, -$node.axisAngle.angle, $node.axisAngle.angle)
             '''
             
             result  = exp(code, variables=locals())[0]
@@ -3085,15 +3082,12 @@ class Expression(object):
             mc.setAttr('%s.vector1'%node,1,0,0)
             mc.setAttr('%s.vector2'%node,1,0,0)
             
-            angle = '%s.axisAngle.angle'%node # TODO: PUT THIS BACK IN EXPRESSION (FX ATTR EXPANSION BUG)
-            
-            
             code = '''
             
             # see atan under https://www.chadvernon.com/blog/trig-maya/
         
             $node.vector1Y = $token            
-            if ($token < 0, -$angle, $angle)
+            if ($token < 0, -$node.axisAngle.angle, $node.axisAngle.angle)
             
             '''
             
@@ -4001,7 +3995,6 @@ class Expression(object):
 #e = Expression()
 #M = e(code)
 #mc.select(M)
-
 
 
 
