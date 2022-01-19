@@ -74,15 +74,30 @@ class Expression(object):
                       ) # 3.1416, 2.5e+5
         
                              
+        #variable  = Combine( '$' + 
+                             #Word(alphanums+'_') + 
+                             #Optional('[' + Optional('-') +
+                                            #Optional(Word(nums)) +
+                                            #Optional(':') +
+                                            #Optional('-') +
+                                            #Optional(Word(nums)) + ']') + 
+                             #Optional(OneOrMore('.'+Word(alphanums) ) ) 
+                             #) # $pi, $list_of_nodes[:-2].t, $MESH.tx   
+                             
         variable  = Combine( '$' + 
-                             Word(alphanums) + 
-                             Optional('[' + Optional('-') +
+                             Word(alphanums+'_') + 
+                             Optional('[' + Optional(oneOf('" \'')) +
+                                            Optional('-') +
                                             Optional(Word(nums)) +
                                             Optional(':') +
                                             Optional('-') +
-                                            Optional(Word(nums)) + ']') + 
-                             Optional(OneOrMore('.'+Word(alphanums) ) ) 
-                             ) # $pi, $list_of_nodes[:-2].t, $MESH.tx                             
+                                            Optional(Word(nums)) +
+                                            Optional(':') +
+                                            Optional('-') +
+                                            Optional(Word(alphanums)) +
+                                            Optional(oneOf('" \'')) +']') + 
+                             Optional(OneOrMore('.'+Word(alphanums)) ) 
+                             ) # $pi, $list_of_nodes[:-2].t, $MESH.tx        
                              
                              
         None_var  = Word('None')
@@ -266,7 +281,6 @@ class Expression(object):
                 if line.endswith(';'):
                     line = line[:-1]
                     
-                
                 if self.debug:
                     print ('\nEVALUATING: %s'%line)   
                     
@@ -274,6 +288,7 @@ class Expression(object):
                 # Test for assigned variables or piped delimited lists
                 #stored, line = self._findVariableAssignment(line)
                 stored, line = self._findDelimitedListAssignment(line)
+                
 
                 # Patch fix for human readable condition formatting            
                 # cond(a>=b,t,f) --> cond(a,>=,b,t,f)
@@ -294,6 +309,7 @@ class Expression(object):
                 # if one list is shorter, use the last index
                 # variables will be assigned, node.att connected
                 if stored:
+                    
                     max0, max1 = len(stored)-1, len(solution)-1
                     maxsize = max(max0, max1) + 1
                     
@@ -315,7 +331,6 @@ class Expression(object):
                             else:
                                 self._connectAttr(solution[index1], stored[index0], align_plugs=True)                         
                             
-
 
 
         # if a container is defined, add all the nodes created underneath
@@ -470,36 +485,34 @@ class Expression(object):
         return res
     
     
-    def _evalAssignOp(self, tokens):
-        """ Used for expression variable assignment and connection to nodes. """
-        #print 'here'
-        dst = tokens[0][:-2]
-        src = tokens[0][-1]
-        op  = tokens[0][-2]
+    #def _evalAssignOp(self, tokens):
+        #""" Used for expression variable assignment and connection to nodes. """
+
+        #dst = tokens[0][:-2]
+        #src = tokens[0][-1]
+        #op  = tokens[0][-2]
         
-        if not isinstance(dst, (tuple, list, set)):
-            dst = [dst]
+        #if not isinstance(dst, (tuple, list, set)):
+            #dst = [dst]
             
         
-        if op == '=':
+        #if op == '=':
         
-            # is the source a matrix type?
-            if self._isMatrixAttr(src):
-                self._connectMatrix(src, dst)        
+            ## is the source a matrix type?
+            #if self._isMatrixAttr(src):
+                #self._connectMatrix(src, dst)        
             
-            else:
-                for item in dst:
-                    self._connectAttr(solution[0], item, align_plugs=True)  
+            #else:
+                #for item in dst:
+                    #self._connectAttr(solution[0], item, align_plugs=True)  
 
                            
-        return src
+        #return src
     
     
-    
-    # TODO
-    # Element evaluation can be cleaned up, and could support lists properly
+
     def _evalElementOp(self, tokens):
-        
+
         """ Evaluates a given expression element. """
 
         def isfloat(x):
@@ -546,6 +559,7 @@ class Expression(object):
               
         # is element a variable?
         elif variables and tokens[0].startswith('$'): 
+            
             var, index, attr = self._splitVariable(tokens[0])
 
             # is the variable declared?
@@ -596,7 +610,10 @@ class Expression(object):
                         print 'expanding:  %s ---> %s'%(tokens[0], values[0])
                     return values[0]
                 
-                print 'expanding:  %s ---> %s'%(tokens[0], values)
+                # this is expanding a list
+                if self.debug:
+                    print 'expanding:  %s ---> %s'%(tokens[0], values)
+                    
                 return values
 
 
@@ -809,7 +826,15 @@ class Expression(object):
         return ['%s.%s' % (node, x) for x in mc.listAttr(query)]
     
     
-
+    def _split(self, node_attr):
+        """
+        splits off the an attribute
+        eg: 'angleBetween3.axisAngle.angle' ---> ['angleBetween3.axisAngle','angle']
+        """
+        tokens = node_attr.split('.')
+        return '.'.join(tokens[:-1]), tokens[-1]
+        
+        
     
     def _getPlugs(self, query, compound=True):
         """
@@ -818,9 +843,15 @@ class Expression(object):
         ex: compound=True  and [pCube1.t, pCube2.t] ---> [[pCube1.t], [pCube2.t]]
         ex: compound=False and [pCube1.t, pCube2.t] ---> [[pCube1.tx, pCube1.ty, pCube1.tz], [pCube2.tx, pCube2.ty, pCube2.tz]]
         """
+        
         if not isinstance(query, (list, tuple, ParseResults)):
             query = [query]
 
+        # if query is an empty list (ex: when using called from a function with no input tokens)
+        # return the empty list
+        if not query: 
+            return query
+    
     
         # if only one item queried, we're trying to figure out if this is a compound or not
         if len(query) == 1:
@@ -1281,15 +1312,29 @@ class Expression(object):
         Returns: the name of the variable and the line stripped of the declaration
         """
         line = ''.join(line.strip().split())
+        #variable  = Combine( '$' + 
+                             #Word(alphanums+'_') + 
+                             #Optional('[' + Optional('-') +
+                                            #Optional(Word(nums)) +
+                                            #Optional(':') +
+                                            #Optional('-') +
+                                            #Optional(Word(nums)) + ']') + 
+                             #Optional('.'+Word(alphanums) ) 
+                             #) # $pi, $list_of_nodes[:-2].t, $MESH.tx        
         variable  = Combine( '$' + 
-                             Word(alphanums) + 
-                             Optional('[' + Optional('-') +
+                             Word(alphanums+'_') + 
+                             Optional('[' + Optional(oneOf('" \'')) +
+                                            Optional('-') +
                                             Optional(Word(nums)) +
                                             Optional(':') +
                                             Optional('-') +
-                                            Optional(Word(nums)) + ']') + 
+                                            Optional(Word(nums)) +
+                                            Optional(':') +
+                                            Optional('-') +
+                                            Optional(Word(alphanums)) +
+                                            Optional(oneOf('" \'')) +']') + 
                              Optional('.'+Word(alphanums) ) 
-                             ) # $pi, $list_of_nodes[:-2].t, $MESH.tx           
+                             ) # $pi, $list_of_nodes[:-2].t, $MESH.tx        
         
         var = Combine(variable+Literal('=')).searchString(line,1).asList()
         if var:
@@ -1325,10 +1370,10 @@ class Expression(object):
         """
         
         line = ''.join(line.strip().split())
-        
+
         # confirm the existence of an assigned delimited list
         variable  = Combine( '$' + 
-                             Word(alphanums) + 
+                             Word(alphanums+'_') + 
                              Optional('[' + Optional(oneOf('" \'')) +
                                             Optional('-') +
                                             Optional(Word(nums)) +
@@ -1346,7 +1391,7 @@ class Expression(object):
         node_attr = Combine(Optional('$') + Word(alphanums + '_:') + '.' + Word(alphanums + '_[].') )
         delim = Group(delimitedList(variable | node_attr, delim=',') + '=')
         delim = delim.searchString(line,1).asList()
-        
+
         if delim:
             
             # find out where it is
@@ -1363,6 +1408,7 @@ class Expression(object):
 
                     # process the list
                     result = []
+                    
                     for i, item in enumerate(delim):
                         
                         # is this a node.attr?
@@ -1383,14 +1429,15 @@ class Expression(object):
                             
                         # process variable
                         else:
-                            var, index, attr = self._splitVariable(item)
 
+                            var, index, attr = self._splitVariable(item)
+                            
                             # is this a user variable? (expand it)
                             if var in self.variables:
                                 obj = self.variables[var]
 
                                 # is there an index, slice or dict key
-                                if index:
+                                if not index is None:
                                     obj = obj[index]
                                     
                                 # no key but obj is dict: expand all values
@@ -1592,12 +1639,16 @@ class Expression(object):
             raise Exception('lerp requires 3 inputs, given: %s' % tokens)
     
         exp = Expression(container='lerp1', 
-                         variables=locals(), 
-                         debug=self.debug)
+                         debug=self.debug,)
+                         #variables=locals())
         
+        #code = '''
+        #$tokens[0] + $tokens[2] * ($tokens[1]-$tokens[0])
+        #'''
         code = '''
-        $tokens[0] + $tokens[2] * ($tokens[1]-$tokens[0])
-        '''
+        %s + %s * (%s-%s)
+        '''%(tokens[0], tokens[2], tokens[1], tokens[0])        
+        
         result = exp(code)
         self.nodes.extend(exp.getNodes())
         
@@ -1619,13 +1670,22 @@ class Expression(object):
             raise Exception('lerp requires 3 inputs, given: %s' % tokens)
     
     
-        exp = Expression(container='elerp1', 
-                         variables=locals(), 
-                         debug=self.debug)
+        exp = Expression(container='elerp1',  
+                         debug=self.debug,)
+                         #variables=locals())
         
-        node = exp('$tokens[0]**rev($tokens[2]) * $tokens[1]**$tokens[2]')[0]
+        #code = '''
+        #$tokens[0]**rev($tokens[2]) * $tokens[1]**$tokens[2]
+        #'''
+        code = '''
+        %s**rev(%s) * %s**%s
+        '''%(tokens[0], tokens[2], tokens[1], tokens[2])             
+        
+        result = exp(code)
+        
         self.nodes.extend(exp.getNodes())
-        return node 
+        return result 
+    
     
     @parsedcommand
     def slerp(self, tokens):
@@ -1689,7 +1749,7 @@ class Expression(object):
 
         if len(tokens) != 5:
             raise Exception('cond() needs 5 items: [a,cond_op,b,val if true,val if false]. Given: %s' % tokens)
-    
+
         A, op, B, true, false = self._getPlugs(tokens)
 
         
@@ -2135,6 +2195,7 @@ class Expression(object):
             raise Exception('sum() requires minimum 2 inputs, given: %s' % tokens)
     
         return self.add(tokens)        
+        
         
     @parsedcommand    
     def int(self, tokens):
@@ -2866,7 +2927,6 @@ class Expression(object):
             
             
             code = '''
-            
             # see asin under https://www.chadvernon.com/blog/trig-maya/
             
             $b = (1.0 - $token*$token)**0.5
@@ -2890,7 +2950,9 @@ class Expression(object):
                 
             result = vec
  
-        self.nodes.extend(exp.getNodes())           
+        self.nodes.extend(exp.getNodes())      
+        
+
         return result
     
     
@@ -3995,8 +4057,5 @@ class Expression(object):
 #e = Expression()
 #M = e(code)
 #mc.select(M)
-
-
-
 
 
