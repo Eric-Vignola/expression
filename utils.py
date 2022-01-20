@@ -1572,20 +1572,23 @@ class Expression(object):
         
             Examples
             --------
-            >>> noise(pCube1.tx) # Applies noise to pCube1's translateX value.
-            >>> noise(pCube1.t)  # Applies noise to pCube1's [tx, ty, tz] values.
+            >>> noise(pCube1.tx) # Outputs 1D noise amplified by pCube1's translateX value.
+            >>> noise(pCube1.t)  # Outputs 3D noise amplified by pCube1's [tx, ty, tz] values.
         """
     
         # Handle single value or vector
-        tokens = self._getPlugs(tokens, compound=False)
+        if tokens:   
+            tokens = self._getPlugs(tokens, compound=False)
+        else:
+            tokens = [None, None, None] # hack to default as a 3D noise
+            
         
         exp = Expression(container='noise1', debug=self.debug)
         results = []
-        for i in range(len(tokens[0])):
-            plug = tokens[0][i]
-    
+        for i in range(len(tokens)):
+
             # create a noise node
-            noise = exp._createNode('noise_node1', ss=True)
+            noise = exp._createNode('noise', ss=True)
             mc.setAttr('%s.ratio' % noise, 1)
             mc.setAttr('%s.noiseType' % noise, 4)  # set noise to 4d perlin (spacetime)
             mc.setAttr('%s.frequencyRatio' % noise, BUILTIN_VARIABLES['phi'])  # set freq to golden value
@@ -1603,9 +1606,11 @@ class Expression(object):
             mc.setAttr('%s.postInfinity' % curve, 4)
     
             # clamp output because sometimes noise goes beyond 0-1 range
-            results.append(exp('%s * clamp(%s.outColorR, 0.001,0.999)' % (plug, noise))[0])
-            #exp = '%s * clamp(%s.outColorR, 0.001,0.999)' % (plug, noise)
-            #results.append(self.eval(exp))
+            if not tokens[i] is None:
+                results.append(exp('%s * clamp(%s.outColorR, 0.001,0.999)' % (tokens[i], noise))[0])
+            else:
+                results.append(exp('clamp(%s.outColorR, 0.001,0.999)' % (noise))[0])
+                
     
         result = None
         if len(results) == 1:
