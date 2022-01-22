@@ -781,6 +781,22 @@ class Expression(object):
         # no need to go any further if not a node.attr
         if not '.' in query:
             return query
+        
+        # catch issue where attribute long names can clash
+        # (ex: added pCube1.w clash with pCube1.worldMesh)
+        try:
+            test0 = mc.attributeName(query,         long=True).split('[')[0]
+            test1 = mc.attributeName('%s[0]'%query, long=True).split('[')[0]
+
+            # long names resolve differently, err on the side this isn't a array
+            if test0 != test1:
+                return query
+            
+
+        # this is not a multi attr
+        except:
+            return query
+        
     
         # find where the multi attr entry point is
         split = query.split('.')
@@ -4035,9 +4051,6 @@ class Expression(object):
 #print e(exp, variables=locals())
 
 
-
-
-
 #code = '''
 
 #$SINE   = sind(HEART_PULSE.pulse*360) * HEART_PULSE.pulseScale
@@ -4062,5 +4075,3 @@ class Expression(object):
 #e = Expression()
 #M = e(code)
 #mc.select(M)
-
-
